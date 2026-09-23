@@ -1,13 +1,13 @@
 station_id,timestamp,fault_type,is_anomaly,__predicted,__decision_route,__model_pct,__rule_confidence_pct,__score_pct
-AWS-BHO-030,2025-01-27 17:00:00,unstructured_anomaly,True,True,model_override,99.97614603099693,100.0,99.98568761859815
-AWS-MUM-007,2025-02-05 18:00:00,unstructured_anomaly,True,True,model_override,99.97235760157103,100.0,99.98341456094262
-AWS-KOL-101,2025-02-22 23:00:00,unstructured_anomaly,True,True,model_override,99.97105530060973,100.0,99.98263318036584
-AWS-BHO-030,2025-02-19 11:00:00,unstructured_anomaly,True,True,model_override,99.96890514014935,100.0,99.9813430840896
-AWS-RAN-101,2025-01-21 14:00:00,unstructured_anomaly,True,True,model_override,99.96834166668893,100.0,99.98100500001335
-AWS-KOL-101,2025-01-09 05:00:00,unstructured_anomaly,True,True,model_override,99.96776195470477,100.0,99.98065717282286
-AWS-BHO-030,2025-01-27 19:00:00,unstructured_anomaly,True,True,model_override,99.96527848820499,100.0,99.97916709292299
-AWS-BHO-030,2025-01-27 20:00:00,unstructured_anomaly,True,True,model_override,99.96527167739598,100.0,99.97916300643757
-AWS-KOL-101,2025-01-09 08:00:00,unstructured_anomaly,True,True,model_override,99.96517590898898,100.0,99.9791055453934
-AWS-KOL-101,2025-02-13 11:00:00,unstructured_anomaly,True,True,model_override,99.96513997854385,100.0,99.9790839871263
-AWS-KOL-101,2025-01-09 12:00:00,unstructured_anomaly,True,True,model_override,99.96470647180233,100.0,99.97882388308139
-AWS-BHO-030,2025-02-11 04:00:00,unstructured_anomaly,True,True,model_override,99.96443143120518,100.0,99.97865885872311
+AWS-MUM-007,2025-01-30 15:00:00,unstructured_anomaly,True,True,model_override,99.957944888108,100.0,99.9747669328648
+AWS-KOL-101,2025-01-26 11:00:00,unstructured_anomaly,True,True,model_override,99.94633776961943,100.0,99.96780266177166
+AWS-RAN-067,2025-03-26 11:00:00,unstructured_anomaly,True,True,model_override,99.94370740017172,100.0,99.96622444010302
+AWS-RAN-101,2025-03-11 23:00:00,multivariate_inconsistency,True,True,model_override,99.93889479972073,100.0,99.96333687983244
+AWS-RAN-101,2025-02-22 23:00:00,unstructured_anomaly,True,True,model_override,99.93449419520266,100.0,99.96069651712159
+AWS-BHO-030,2025-01-26 12:00:00,unstructured_anomaly,True,True,model_override,99.92935257724773,100.0,99.95761154634863
+AWS-MUM-007,2025-03-13 23:00:00,unstructured_anomaly,True,True,model_override,99.90359423154861,100.0,99.94215653892917
+AWS-RAN-101,2025-01-15 17:00:00,unstructured_anomaly,True,True,model_override,99.90212662099383,100.0,99.94127597259629
+AWS-KOL-101,2025-02-09 18:00:00,unstructured_anomaly,True,True,model_override,99.88943365176708,100.0,99.93366019106024
+AWS-RAN-067,2025-03-26 13:00:00,unstructured_anomaly,True,True,model_override,99.87506432490146,100.0,99.92503859494087
+AWS-RAN-067,2025-03-29 15:00:00,unstructured_anomaly,True,True,model_override,99.85768319429057,100.0,99.91460991657434
+AWS-RAN-101,2025-02-17 17:00:00,unstructured_anomaly,True,True,model_override,99.84799993480767,100.0,99.90879996088461

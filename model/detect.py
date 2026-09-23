@@ -585,68 +585,6 @@ def _multivariate_evidence(featured_buffer: pd.DataFrame):
     return evidence, fast_path
 
 
-def _confirmed_spikes(featured_buffer: pd.DataFrame, thresholds: dict, station_id: str) -> list[dict]:
-    """Confirm the prior reading as a spike once a current reading reverts.
-
-    At time t+1, t+2, or t+3 we can finally distinguish `normal -> extreme(s) -> normal`
-    from a real, sustained weather move. The returned event belongs to
-    the bad raw reading, not the confirming reading.
-    """
-    confirmed = []
-    n = len(featured_buffer)
-    if n < 3:
-        return confirmed
-
-    current = featured_buffer.iloc[-1]
-    
-    for param, prefix in PARAM_PREFIXES.items():
-        spike_threshold = get_threshold(thresholds, "spike", prefix, station_id)
-        current_val = current.get(param)
-        if pd.isna(current_val):
-            continue
-            
-        # Check if the current reading confirms a candidate spike from 1, 2, or 3 steps ago
-        for step in range(1, 4):
-            if n < step + 2:
-                break
-                
-            candidate = featured_buffer.iloc[-(step + 1)]
-            before = featured_buffer.iloc[-(step + 2)]
-            
-            before_val = before.get(param)
-            candidate_val = candidate.get(param)
-            
-            if pd.isna(before_val) or pd.isna(candidate_val):
-                continue
-                
-            jump = abs(candidate_val - before_val)
-            if jump < spike_threshold:
-                continue
-                
-            candidate_dev = candidate.get(f"{prefix}_deviation")
-            if pd.isna(candidate_dev) or abs(candidate_dev) <= spike_threshold * SPIKE_DEVIATION_MULTIPLIER:
-                continue
-                
-            # If it reverted to baseline NOW
-            if abs(current_val - before_val) <= jump * SPIKE_REVERSION_RATIO:
-                reversion_cleanliness = max(0.0, 1.0 - (abs(current_val - before_val) / (jump * SPIKE_REVERSION_RATIO if jump > 0 else 1.0)))
-                spike_conf = graduated_confidence_spike(
-                    abs(candidate_dev),
-                    spike_threshold * SPIKE_DEVIATION_MULTIPLIER,
-                    reversion_cleanliness=reversion_cleanliness,
-                )
-                confirmed.append({
-                    "parameter": param,
-                    "timestamp": pd.Timestamp(candidate["timestamp"]),
-                    "observed_value": float(candidate_val),
-                    "suggested_value": round(float((before_val + current_val) / 2), 2),
-                    "confidence": spike_conf,
-                })
-                break  # we confirmed a spike for this parameter, stop checking older steps
-                
-    return confirmed
-
-
 def _rule_checks(raw_reading: dict, feature_row: pd.Series, history_df: pd.DataFrame, artifact: dict, precomputed_history_featured: pd.DataFrame = None) -> dict:
     """
     Seven independent checks, each computed on its own terms -- no rule
@@ -719,7 +657,7 @@ def _rule_checks(raw_reading: dict, feature_row: pd.Series, history_df: pd.DataF
             if param not in recent_raw.columns:
                 continue
             vals = recent_raw[param]
-            if vals.notna().all() and (vals <= FAIL_LOW_FLOOR[prefix]).all():
+            if vals.notna().all() and (vals <= FAIL_LOW_FLOOR[prefix]).all() and vals.std() < 1.0:
                 faillow_conf = graduated_confidence_fail_low(
                     float(vals.iloc[-1]),
                     float(FAIL_LOW_FLOOR[prefix]),
@@ -742,33 +680,40 @@ def _rule_checks(raw_reading: dict, feature_row: pd.Series, history_df: pd.DataF
         featured_buffer = precomputed_history_featured
     else:
         featured_buffer = _featurize_buffer(history_df)
-    confirmed_spikes = _confirmed_spikes(featured_buffer, thresholds, station_id)
-
-    # ── Instantaneous Rate-of-Change / Candidate Spike Detection ──
-    # WMO-No. 8: Natural meteorological air temperature changes rarely exceed 8-10°C/hr.
-    # An instantaneous jump (e.g. 24 -> 38 in 1 step) is an unambiguous rate-of-change spike.
-    if len(featured_buffer) >= 2:
-        curr_row = featured_buffer.iloc[-1]
-        prev_row = featured_buffer.iloc[-2]
+    from model.spike_tracker import init_spike_state, step_spike_state, SPIKE_WINDOW_HOURS
+    
+    window_size = SPIKE_WINDOW_HOURS + 1
+    if len(featured_buffer) > 0:
+        replay_rows = featured_buffer.iloc[-window_size:] if len(featured_buffer) > window_size else featured_buffer
         for param, prefix in PARAM_PREFIXES.items():
             spike_thresh = get_threshold(thresholds, "spike", prefix, station_id)
-            curr_val = curr_row.get(param)
-            prev_val = prev_row.get(param)
-            if pd.notna(curr_val) and pd.notna(prev_val):
-                step_diff = abs(float(curr_val) - float(prev_val))
-                dev_val = curr_row.get(f"{prefix}_deviation")
-                abs_dev = abs(float(dev_val)) if pd.notna(dev_val) else step_diff
-
-                if step_diff >= spike_thresh and abs_dev >= (spike_thresh * SPIKE_DEVIATION_MULTIPLIER):
-                    spike_conf = graduated_confidence_spike(abs_dev, spike_thresh * SPIKE_DEVIATION_MULTIPLIER)
-                    fired.append({
-                        "type": "spike",
-                        "parameter": param,
-                        "confidence": spike_conf,
-                        "observed_value": float(curr_val),
-                        "threshold": f">{spike_thresh * SPIKE_DEVIATION_MULTIPLIER:.1f}",
-                        "reason": f"Sudden rate-of-change jump of {step_diff:.1f} (deviation {abs_dev:.1f} exceeds threshold {spike_thresh * SPIKE_DEVIATION_MULTIPLIER:.1f}).",
-                    })
+            state = init_spike_state()
+            final_conf = 0.0
+            final_status = "IDLE"
+            final_reason = ""
+            for i in range(len(replay_rows)):
+                row = replay_rows.iloc[i]
+                val = row.get(param)
+                dev = row.get(f"{prefix}_deviation")
+                conf, status, reason = step_spike_state(
+                    val, dev, spike_thresh, SPIKE_DEVIATION_MULTIPLIER, state, graduated_confidence_spike
+                )
+                if i == len(replay_rows) - 1:
+                    final_conf = conf
+                    final_status = status
+                    final_reason = reason
+            
+            if final_conf > 0:
+                val = replay_rows.iloc[-1].get(param)
+                fired.append({
+                    "type": "spike",
+                    "parameter": param,
+                    "confidence": final_conf,
+                    "observed_value": float(val) if pd.notna(val) else None,
+                    "threshold": f">{spike_thresh * SPIKE_DEVIATION_MULTIPLIER:.1f}",
+                    "reason": final_reason,
+                    "basis": "provisional" if final_status == "PROVISIONAL" else "confirmed"
+                })
 
     # Extract current hour once for the CUSUM diurnal baseline lookup.
     try:
@@ -794,7 +739,6 @@ def _rule_checks(raw_reading: dict, feature_row: pd.Series, history_df: pd.DataF
         "fired": fired,
         "any": len(fired) > 0,
         "fast_path_offline_params": fast_path_offline_params,
-        "confirmed_spikes": confirmed_spikes,
     }
 
 
@@ -831,7 +775,7 @@ def _fuse_and_score(model_pct, rule_evidence: list):
     """
     if rule_evidence:
         rule_confidence = max(r["confidence"] for r in rule_evidence)
-        specific_evidence = [r for r in rule_evidence if r["type"] not in ("physical_bounds", "dropout", "network_helper")]
+        specific_evidence = [r for r in rule_evidence if r["type"] not in ("dropout", "network_helper")]
         if specific_evidence:
             fault_type = max(specific_evidence, key=lambda e: e["confidence"])["type"]
         else:
@@ -1084,6 +1028,8 @@ def _corroborate_network(raw_reading: dict, history_df: pd.DataFrame, neighbor_b
                     pd.notna(target_dev) and pd.notna(peer_dev)
                     and abs(peer_dev) >= dev_thresh
                     and (target_dev * peer_dev > 0)
+                    and (abs(target_dev) / max(abs(peer_dev), 0.1) <= 3.0)
+                    and abs(target_dev - peer_dev) <= (dev_thresh * 1.5)
                 )
                 if corroborated_by_dev:
                     corroborating_peers += 1
@@ -1546,7 +1492,7 @@ def score_reading(raw_reading: dict, history_df: pd.DataFrame, artifact: dict,
     corroborating_peer_count = None
     
     if fired:
-        specific_evidence = [r for r in fired if r["type"] not in ("physical_bounds", "dropout", "network_helper")]
+        specific_evidence = [r for r in fired if r["type"] not in ("dropout", "network_helper")]
         primary_rule = max(specific_evidence, key=lambda e: e["confidence"]) if specific_evidence else max(fired, key=lambda e: e["confidence"])
         pre_fusion_fault = primary_rule["type"]
         implicated = list(set(r["parameter"] for r in fired))
@@ -1647,7 +1593,6 @@ def score_reading(raw_reading: dict, history_df: pd.DataFrame, artifact: dict,
         "decision_basis": decision_basis,
         "rules_fired": fired,
         "fast_path_offline_params": rules["fast_path_offline_params"],
-        "confirmed_spikes": rules["confirmed_spikes"],
         "suggested_values": suggested_values,
         "suggested_metadata": suggested_metadata,
         "shap_features": shap_features_public,

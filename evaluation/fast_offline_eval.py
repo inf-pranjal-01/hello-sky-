@@ -101,6 +101,8 @@ import pandas as pd
 # config.py lives in <project_root>/, so put that directory first.
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
+from model.spike_tracker import init_spike_state, step_spike_state
+from model.detect import graduated_confidence_spike
 
 from config import (
     CLUSTERS,
@@ -259,35 +261,7 @@ def run_rule_engine_and_health(featured: pd.DataFrame, artifact: dict):
             p: get_threshold(thresholds, "spike", p, station_id)
             for _, p in prefixes
         }
-        # Causal spike confirmation arrives one reading late, but the
-        # detected event belongs to the extreme middle reading. Fully vectorized
-        # via numpy array shifts for 100x evaluation speedup.
-        spike_confirmed = {}
-        for col, prefix in prefixes:
-            vals = raw[col]
-            if len(vals) < 3:
-                spike_confirmed[prefix] = np.zeros(m, dtype=bool)
-                continue
-            before = np.empty_like(vals)
-            before[0] = np.nan
-            before[1:] = vals[:-1]
-
-            jump = np.abs(vals - before)
-            thresh = spike_thresh[prefix] * SPIKE_DEVIATION_MULTIPLIER
-            qualifies = (jump > 0) & (np.abs(dev_col[prefix]) > thresh) & ~np.isnan(jump) & ~np.isnan(dev_col[prefix])
-
-            reversion = np.zeros(m, dtype=bool)
-            for step in (1, 2, 3):
-                after = np.empty_like(vals)
-                after[:-step] = vals[step:]
-                after[-step:] = np.nan
-                rev_step = np.abs(after - before) <= (jump * SPIKE_REVERSION_RATIO)
-                reversion |= (rev_step & ~np.isnan(after))
-
-            sc = qualifies & reversion
-            sc[0] = False
-            sc[-1] = False
-            spike_confirmed[prefix] = sc
+        spike_states = {prefix: init_spike_state() for col, prefix in prefixes}
 
         # Per-parameter state. Multivariate persistence is station-level
         # because it is one joint temperature/humidity/pressure event.
@@ -378,8 +352,12 @@ def run_rule_engine_and_health(featured: pd.DataFrame, artifact: dict):
                 # floor-match condition.
                 frozen = frozen_col[prefix][i] and not dropout
 
-                # Spike: calibrated station/parameter threshold.
-                spike = spike_confirmed[prefix][i]
+                # Spike state machine
+                conf, status, reason = step_spike_state(
+                    raw[col][i], dev_col[prefix][i], spike_thresh[prefix], SPIKE_DEVIATION_MULTIPLIER, spike_states[prefix], graduated_confidence_spike
+                )
+                spike_conf_val = conf
+                spike = (conf > 0)
 
                 # Drift: causal CUSUM over diurnal residual, matching detect.py
                 raw_roc = roc_col[prefix][i]
@@ -413,18 +391,19 @@ def run_rule_engine_and_health(featured: pd.DataFrame, artifact: dict):
                 ewma_triggered = (pos_streak and st.get("ewma_val", 0.0) > EWMA_DRIFT_THRESHOLD) or (neg_streak and st.get("ewma_val", 0.0) < -EWMA_DRIFT_THRESHOLD)
                 drift = cusum_triggered or ewma_triggered
 
-                # Sensor fail-low: absolute floor + persistence.
-                collapse = (
-                    not np.isnan(value)
-                    and value <= FAIL_LOW_FLOOR[prefix]
-                )
-                st["faillow_streak"] = (
-                    st["faillow_streak"] + 1 if collapse else 0
-                )
-                faillow_confirmed = (
-                    st["faillow_streak"]
-                    >= FAIL_LOW_CONSECUTIVE_REQUIRED
-                )
+                # Sensor fail-low: absolute floor + persistence + stability.
+                is_below = not np.isnan(value) and value <= FAIL_LOW_FLOOR[prefix]
+                if is_below:
+                    # To prevent unstructured anomalies from triggering fail-low, ensure it's flatlined.
+                    # It can be the first drop, OR it must be within 1.0 of the previous below-floor value.
+                    if st["faillow_streak"] > 0 and previous_value is not None and abs(value - previous_value) > 1.0:
+                        st["faillow_streak"] = 1  # Reset to 1 because it's a new volatile value, not a flatline
+                    else:
+                        st["faillow_streak"] += 1
+                else:
+                    st["faillow_streak"] = 0
+                    
+                faillow_confirmed = st["faillow_streak"] >= FAIL_LOW_CONSECUTIVE_REQUIRED
 
                 mv_hit = mv_single and prefix in mv_implicated
 
@@ -498,7 +477,7 @@ def run_rule_engine_and_health(featured: pd.DataFrame, artifact: dict):
                     evidence.append(
                         (
                             "spike",
-                            RULE_BASE_CONFIDENCE["spike"],
+                            spike_conf_val,
                         )
                     )
 
@@ -695,7 +674,7 @@ def apply_spatial_corroboration(
     dev_map = {"temp": temp_devs, "pressure": press_devs, "humidity": humid_devs}
     roc_map = {"temp": temp_rocs, "pressure": press_rocs, "humidity": humid_rocs}
 
-    candidate_mask = (row_rule_conf > 0) & np.isin(row_fault_type, ["frozen_value", "drift"])
+    candidate_mask = (row_rule_conf > 0) & np.isin(row_fault_type, ["frozen_value", "drift", "spike", "multivariate_inconsistency"])
     candidate_indices = np.where(candidate_mask)[0]
 
     bonuses_awarded = 0
@@ -747,16 +726,21 @@ def apply_spatial_corroboration(
                         diverged_peers += 1
                     elif peer_delta <= (div_thresh * 0.3):
                         flat_peers += 1
-                elif ft == "drift":
+                elif ft in ("drift", "spike", "multivariate_inconsistency"):
+                    dev_thresh = 4.0 if prefix == "temp" else (3.0 if prefix == "pressure" else 15.0)
                     corroborated_by_dev = (
                         pd.notna(t_dev) and pd.notna(p_dev)
                         and abs(p_dev) >= 1.5
                         and (t_dev * p_dev > 0)
+                        and (abs(t_dev) / max(abs(p_dev), 0.1) <= 3.0)  # Ratio strictness
+                        and abs(t_dev - p_dev) <= dev_thresh * 1.5      # Absolute strictness
                     )
                     corroborated_by_roc = (
                         pd.notna(t_roc) and pd.notna(p_roc)
                         and abs(p_roc) >= (div_thresh * 0.5)
                         and (t_roc * p_roc > 0)
+                        and (abs(t_roc) / max(abs(p_roc), 0.1) <= 3.0)
+                        and abs(t_roc - p_roc) <= div_thresh * 2.0
                     )
                     if corroborated_by_dev or corroborated_by_roc:
                         corroborating_peers += 1
@@ -766,7 +750,7 @@ def apply_spatial_corroboration(
             if diverged_peers >= 1:
                 row_rule_conf[idx] = min(89.5, row_rule_conf[idx] + 6.0)
                 bonuses_awarded += 1
-        elif ft == "drift":
+        elif ft in ("drift", "spike", "multivariate_inconsistency"):
             if corroborating_peers >= 2:
                 # Widespread regional front detected: all peers moved in sync
                 row_fault_type[idx] = "REGIONAL_EVENT"
@@ -879,7 +863,7 @@ def _score_and_report(featured: pd.DataFrame, label: str, n_dropped: int, silent
         eval_df["fault_type_pred"] = pred_fault_type
         
         print("\n  Episodic metrics (same station + fault type; overlap match):")
-        for ft in ("frozen_value", "drift"):
+        for ft in ("frozen_value", "drift", "spike"):
             metrics = episodic_metrics(eval_df, ft)
             tp, fp, fn = metrics["tp"], metrics["fp"], metrics["fn"]
             print(f"  {ft}: P={metrics['precision']:.1%}, R={metrics['recall']:.1%}, TP={tp} FP={fp} FN={fn} (GT episodes={tp+fn}, predicted={tp+fp})")
