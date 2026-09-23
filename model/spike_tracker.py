@@ -61,12 +61,22 @@ def step_spike_state(
                 state["best_progress"] = abs(val - prev_val)
                 state["violation_run"] = 0
                 state["candidate_dev"] = abs_dev
-                
+
                 # Log ENTRY
                 if kwargs.get('ts'):
                     with open("scratch/spike_events.jsonl", "a") as f:
                         f.write(json.dumps({"event": "ENTER", "station": kwargs.get('station'), "param": kwargs.get('param'), "ts": kwargs.get('ts'), "jump": state["jump"], "t0_val": prev_val, "peak_val": val, "thresh": spike_thresh}) + "\n")
-                        
+
+                # PEAK-CONFIDENCE BOOST (Tier-2 fix):
+                # When the jump is large enough (|dev| >= 2x effective threshold),
+                # the peak row itself is high-certainty evidence — boost to 92.0
+                # (> RULE_CONFIDENCE_BYPASS=90) so t0 bypasses fusion without
+                # needing the recovery tick to confirm. Intentionally coupled with
+                # the CONFIRMED_SPIKE suppression below; neither change works alone.
+                effective_thresh = spike_thresh * multiplier
+                if abs_dev >= 2.0 * effective_thresh:
+                    return 92.0, "PROVISIONAL", f"Large spike at peak ({abs_dev:.1f} >= 2x{effective_thresh:.1f}); peak-confidence bypass."
+
                 return 40.0, "PROVISIONAL", f"Candidate jump of {step_diff:.1f} detected."
         return 0.0, "IDLE", ""
 
@@ -83,15 +93,29 @@ def step_spike_state(
 
         if resid <= abs(jump) * SPIKE_DECAY_RATIO:
             state["status"] = "IDLE"
-            conf = 95.0
-            if graduated_conf_func:
-                conf = graduated_conf_func(state.get("candidate_dev", abs(jump)), spike_thresh * multiplier)
-            
-            if kwargs.get('ts'):
-                with open("scratch/spike_events.jsonl", "a") as f:
-                    f.write(json.dumps({"event": "CONFIRM", "station": kwargs.get('station'), "param": kwargs.get('param'), "ts": kwargs.get('ts'), "ticks": state["ticks"], "resid": resid, "elapsed_hours": state["elapsed_hours"]}) + "\n")
-                    
-            return max(90.0, conf), "CONFIRMED_SPIKE", f"Spike confirmed."
+            effective_thresh = spike_thresh * multiplier
+            peak_was_boosted = state.get("candidate_dev", 0.0) >= 2.0 * effective_thresh
+
+            if peak_was_boosted:
+                # RECOVERY-TICK SUPPRESSION (coupled with peak boost at IDLE→PROVISIONAL):
+                # Only suppress when the peak row already fired at conf=92.0 (bypass).
+                # For those episodes the recovery tick is a clean-weather FP — suppress it.
+                # Small spikes (candidate_dev < 2x threshold) did NOT get a boosted peak,
+                # so they still need the recovery tick to carry the alert — do not suppress.
+                if kwargs.get('ts'):
+                    with open("scratch/spike_events.jsonl", "a") as f:
+                        f.write(json.dumps({"event": "CONFIRM_SUPPRESSED", "station": kwargs.get('station'), "param": kwargs.get('param'), "ts": kwargs.get('ts'), "ticks": state["ticks"], "resid": resid, "elapsed_hours": state["elapsed_hours"]}) + "\n")
+                return 0.0, "CONFIRMED_SPIKE", "Recovery tick suppressed (peak already alerted via bypass)."
+            else:
+                # Small spike: peak did not bypass fusion. Keep recovery tick so the
+                # episode can still alert. conf from graduated_conf_func or fallback 95.
+                conf = 95.0
+                if graduated_conf_func:
+                    conf = graduated_conf_func(state.get("candidate_dev", abs(jump)), effective_thresh)
+                if kwargs.get('ts'):
+                    with open("scratch/spike_events.jsonl", "a") as f:
+                        f.write(json.dumps({"event": "CONFIRM", "station": kwargs.get('station'), "param": kwargs.get('param'), "ts": kwargs.get('ts'), "ticks": state["ticks"], "resid": resid, "elapsed_hours": state["elapsed_hours"]}) + "\n")
+                return max(90.0, conf), "CONFIRMED_SPIKE", "Spike confirmed (small-spike path, recovery tick retained)."
 
         tol = max(SPIKE_NOISE_FLOOR, SPIKE_NOISE_STD_MULTIPLIER * (noise_std or 0.0))
         
