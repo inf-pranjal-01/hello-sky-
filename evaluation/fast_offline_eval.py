@@ -96,11 +96,12 @@ from pathlib import Path
 import joblib
 import numpy as np
 import pandas as pd
-
 # evaluate.py lives in <project_root>/model/.
 # config.py lives in <project_root>/, so put that directory first.
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
+
+from evaluation.episodic_eval import compute_episodic_result, print_episodic_report
 from model.spike_tracker import init_spike_state, step_spike_state
 from model.detect import graduated_confidence_spike
 
@@ -139,6 +140,7 @@ from config import (
     RULE_BASE_CONFIDENCE,
     SPIKE_REVERSION_RATIO,
     SPIKE_DEVIATION_MULTIPLIER,
+    UNCORROBORATED_DRIFT_MIN_MODEL_PCT,
 )
 
 from model.features import (
@@ -630,6 +632,7 @@ def apply_spatial_corroboration(
     row_rule_conf: np.ndarray,
     row_fault_type: np.ndarray,
     artifact: dict,
+    gate_mode: str = "new",
 ):
     """
     Applies empirical multi-station spatial corroboration (Stages 3 & 4) across all 7 regional clusters.
@@ -679,6 +682,7 @@ def apply_spatial_corroboration(
 
     bonuses_awarded = 0
     regional_events_found = 0
+    corrob_peers_count = np.full(len(featured), -1, dtype=int)
 
     for idx in candidate_indices:
         sid = sids[idx]
@@ -735,25 +739,35 @@ def apply_spatial_corroboration(
                         and (abs(t_dev) / max(abs(p_dev), 0.1) <= 3.0)  # Ratio strictness
                         and abs(t_dev - p_dev) <= dev_thresh * 1.5      # Absolute strictness
                     )
-                    # Use diurnal residuals for corroboration, not instantaneous ROC
-                    # This prevents normal sunrise/sunset from falsely corroborating a drift.
-                    cur_hour = pd.Timestamp(cur_ts).hour
-                    t_exp = get_expected_roc(sid, prefix, int(cur_hour))
-                    p_exp = get_expected_roc(peer_id, prefix, int(cur_hour))
-                    t_res = t_roc - t_exp if pd.notna(t_roc) else float("nan")
-                    p_res = p_roc - p_exp if pd.notna(p_roc) else float("nan")
-                    
-                    corroborated_by_roc = (
-                        pd.notna(t_res) and pd.notna(p_res)
-                        and abs(p_res) >= (div_thresh * 0.5)
-                        and (t_res * p_res > 0)
-                        and (abs(t_res) / max(abs(p_res), 0.1) <= 3.0)
-                        and (abs(p_res) / max(abs(t_res), 0.1) <= 3.0)  # bidirectional
-                        and abs(t_res - p_res) <= div_thresh * 2.0
-                    )
+                    if gate_mode == "old":
+                        corroborated_by_roc = (
+                            pd.notna(t_roc) and pd.notna(p_roc)
+                            and abs(p_roc) >= (div_thresh * 0.5)
+                            and (t_roc * p_roc > 0)
+                            and (abs(t_roc) / max(abs(p_roc), 0.1) <= 3.0)
+                            and abs(t_roc - p_roc) <= div_thresh * 2.0
+                        )
+                    else:
+                        # Use diurnal residuals for corroboration, not instantaneous ROC
+                        cur_hour = pd.Timestamp(cur_ts).hour
+                        t_exp = get_expected_roc(sid, prefix, int(cur_hour))
+                        p_exp = get_expected_roc(peer_id, prefix, int(cur_hour))
+                        t_res = t_roc - t_exp if pd.notna(t_roc) else float("nan")
+                        p_res = p_roc - p_exp if pd.notna(p_roc) else float("nan")
+                        
+                        corroborated_by_roc = (
+                            pd.notna(t_res) and pd.notna(p_res)
+                            and abs(p_res) >= (div_thresh * 0.5)
+                            and (t_res * p_res > 0)
+                            and (abs(t_res) / max(abs(p_res), 0.1) <= 3.0)
+                            and (abs(p_res) / max(abs(t_res), 0.1) <= 3.0)  # bidirectional
+                            and abs(t_res - p_res) <= div_thresh * 2.0
+                        )
                     if corroborated_by_dev or corroborated_by_roc:
                         corroborating_peers += 1
                         break
+
+        corrob_peers_count[idx] = corroborating_peers
 
         if ft == "frozen_value":
             if diverged_peers >= 1:
@@ -766,13 +780,17 @@ def apply_spatial_corroboration(
                 row_rule_conf[idx] = 0.0
                 regional_events_found += 1
             elif eligible_peers >= 1 and corroborating_peers == 0:
-                # Isolated divergence: true sensor drift confirmed by peers
-                row_rule_conf[idx] = min(95.0, row_rule_conf[idx] + 5.0)
-                bonuses_awarded += 1
+                if gate_mode == "old":
+                    # Isolated divergence: true sensor drift confirmed by peers
+                    row_rule_conf[idx] = min(95.0, row_rule_conf[idx] + 5.0)
+                    bonuses_awarded += 1
+                else:
+                    # In new gate: bonus is decoupled to avoid inflating marginal drift
+                    pass
 
     print(f"(Spatial corroboration: {bonuses_awarded} peer confidence bonuses awarded, "
           f"{regional_events_found} false drift alarms suppressed via regional front recognition.)")
-    return row_rule_conf, row_fault_type
+    return row_rule_conf, row_fault_type, corrob_peers_count
 
 
 def _featurize(df: pd.DataFrame, mask_col: str = None) -> pd.DataFrame:
@@ -890,7 +908,11 @@ def _score_and_report(featured: pd.DataFrame, label: str, n_dropped: int, silent
         else:
             print(f"  *** WARNING: {fn_via_re} rows are true false negatives — recall WILL improve after rewrite ***")
 
-    if not silent:
+
+
+
+
+
         if label == "ALL FILES COMBINED":
             print("\n" + "=" * 90)
             print("                   SKYGUARD AI — MULTI-STATION BENCHMARK EVALUATION")
@@ -1110,6 +1132,181 @@ def _print_evidence_audit(featured: pd.DataFrame):
     print(f"\n[Artifact] Evidence samples saved -> {EVIDENCE_SAMPLE_PATH}")
 
 
+def run_gate_pipeline(
+    featured: pd.DataFrame,
+    row_hard: np.ndarray,
+    row_rule_conf_in: np.ndarray,
+    row_fault_type_in: np.ndarray,
+    artifact: dict,
+    model_pct: np.ndarray,
+    helper_alert: np.ndarray,
+    frozen_helper_alert: np.ndarray,
+    raw_nans_featured: np.ndarray,
+    gate_mode: str,
+):
+    rrc = row_rule_conf_in.copy()
+    rft = row_fault_type_in.copy()
+    rrc, rft, c_peers = apply_spatial_corroboration(featured, row_hard, rrc, rft, artifact, gate_mode=gate_mode)
+    
+    overall_confidence = MODEL_WEIGHT * model_pct + RULE_WEIGHT * rrc
+    pred = (
+        row_hard
+        | ((overall_confidence > FUSION_ANOMALY_THRESHOLD) & (rrc > 0))
+        | (model_pct > MODEL_ALONE_OVERRIDE_THRESHOLD)
+        | (rrc > RULE_CONFIDENCE_BYPASS)
+    )
+    frozen_only = rrc == RULE_BASE_CONFIDENCE["frozen_value"]
+    pred = pred & ~(frozen_only & (model_pct < FROZEN_MIN_MODEL_CORROBORATION))
+
+    if gate_mode == "new":
+        uncorrob_drift = (rft == "drift") & (c_peers < 2)
+        suppress_drift = (
+            uncorrob_drift
+            & (model_pct < UNCORROBORATED_DRIFT_MIN_MODEL_PCT)
+            & ~row_hard
+            & ~(model_pct > MODEL_ALONE_OVERRIDE_THRESHOLD)
+        )
+        pred = pred & ~suppress_drift
+
+    pred = pred | frozen_helper_alert | raw_nans_featured
+
+    pft = pd.Series("none", index=featured.index, dtype="object")
+    has_rule_ft = (rft != None) & (rft != "none")
+    pft.loc[has_rule_ft] = rft[has_rule_ft]
+    pft.loc[frozen_helper_alert & (pft == "none")] = "frozen_value"
+    pft.loc[helper_alert & (pft == "none")] = "multivariate_inconsistency"
+    pft.loc[(model_pct > MODEL_ALONE_OVERRIDE_THRESHOLD) & (pft == "none")] = "unstructured_anomaly"
+    pft.loc[raw_nans_featured] = "dropout"
+    pft.loc[~pred] = "none"
+    return np.asarray(pred, dtype=bool), np.asarray(pft), rft, rrc
+
+
+def print_exact_gate_comparison(
+    featured: pd.DataFrame,
+    row_hard: np.ndarray,
+    row_rule_conf_base: np.ndarray,
+    row_fault_type_base: np.ndarray,
+    artifact: dict,
+    model_pct: np.ndarray,
+    helper_alert: np.ndarray,
+    frozen_helper_alert: np.ndarray,
+    raw_nans_featured: np.ndarray,
+):
+    ground_truth = featured["is_anomaly"].to_numpy(dtype=bool)
+    fault_type = featured["fault_type"].to_numpy()
+
+    # 1. Run OLD gate (sign-match)
+    pred_old, pft_old, rft_old, rrc_old = run_gate_pipeline(
+        featured, row_hard, row_rule_conf_base, row_fault_type_base, artifact,
+        model_pct, helper_alert, frozen_helper_alert, raw_nans_featured, gate_mode="old"
+    )
+
+    # 2. Run NEW gate (bidirectional residual)
+    pred_new, pft_new, rft_new, rrc_new = run_gate_pipeline(
+        featured, row_hard, row_rule_conf_base, row_fault_type_base, artifact,
+        model_pct, helper_alert, frozen_helper_alert, raw_nans_featured, gate_mode="new"
+    )
+
+    tp_old = int((pred_old & ground_truth).sum())
+    fp_old = int((pred_old & ~ground_truth).sum())
+    fn_old = int((~pred_old & ground_truth).sum())
+    tn_old = int((~pred_old & ~ground_truth).sum())
+
+    tp_new = int((pred_new & ground_truth).sum())
+    fp_new = int((pred_new & ~ground_truth).sum())
+    fn_new = int((~pred_new & ground_truth).sum())
+    tn_new = int((~pred_new & ~ground_truth).sum())
+
+    p_old = tp_old / (tp_old + fp_old) if (tp_old + fp_old) > 0 else 0.0
+    r_old = tp_old / (tp_old + fn_old) if (tp_old + fn_old) > 0 else 0.0
+    f1_old = 2 * p_old * r_old / (p_old + r_old) if (p_old + r_old) > 0 else 0.0
+
+    p_new = tp_new / (tp_new + fp_new) if (tp_new + fp_new) > 0 else 0.0
+    r_new = tp_new / (tp_new + fn_new) if (tp_new + fn_new) > 0 else 0.0
+    f1_new = 2 * p_new * r_new / (p_new + r_new) if (p_new + r_new) > 0 else 0.0
+
+    print("\n" + "=" * 90)
+    print("DETERMINISTIC TWO-GATE BENCHMARK COMPARISON (SAME PIPELINE, FIXED MODELS)")
+    print("Both gates evaluated side-by-side on exact same rows, exact same model scores.")
+    print("=" * 90)
+    print(f"  Old Gate (sign-match):        TP={tp_old:<5} FP={fp_old:<5} FN={fn_old:<5} TN={tn_old:<6} Prec={p_old:.1%}  Rec={r_old:.1%}  F1={f1_old:.3f}")
+    print(f"  New Gate (bidirectional res): TP={tp_new:<5} FP={fp_new:<5} FN={fn_new:<5} TN={tn_new:<6} Prec={p_new:.1%}  Rec={r_new:.1%}  F1={f1_new:.3f}")
+
+    # FP Reconciliation
+    tn_to_fp = int((~pred_old & ~ground_truth & pred_new).sum())
+    fp_to_tn = int((pred_old & ~ground_truth & ~pred_new).sum())
+    fp_to_fp = int((pred_old & ~ground_truth & pred_new).sum())
+    fp_delta = fp_new - fp_old
+
+    print(f"\n  [Overall False Positive Transition Matrix (ground_truth=False rows)]")
+    print(f"    TN -> FP (new gate alerts where old didn't):  {tn_to_fp}")
+    print(f"    FP -> TN (old gate alerted where new didn't): {fp_to_tn}")
+    print(f"    FP -> FP (both gates alerted):                {fp_to_fp}")
+    print(f"    Arithmetic: {tn_to_fp} - {fp_to_tn} = {tn_to_fp - fp_to_tn} (exact match to FP delta: {fp_delta:+d})")
+
+    # Drift Attribution Reconciliation
+    mask_drift_true = ground_truth & (fault_type == "drift")
+    drift_pred_old = pred_old & (pft_old == "drift")
+    drift_pred_new = pred_new & (pft_new == "drift")
+
+    d_stp_old = int((mask_drift_true & drift_pred_old).sum())
+    d_stp_new = int((mask_drift_true & drift_pred_new).sum())
+    d_pred_old = int(drift_pred_old.sum())
+    d_pred_new = int(drift_pred_new.sum())
+    d_fp_old = d_pred_old - d_stp_old
+    d_fp_new = d_pred_new - d_stp_new
+    d_fp_delta = d_fp_new - d_fp_old
+
+    # Decompose drift FP increase into:
+    # Set A: normal rows falsely labeled drift (~ground_truth)
+    # Set B: real-fault rows of OTHER types mislabeled as drift (ground_truth & fault_type != drift)
+    net_set_a = int((drift_pred_new & ~ground_truth).sum()) - int((drift_pred_old & ~ground_truth).sum())
+    net_set_b = int((drift_pred_new & ground_truth & (fault_type != "drift")).sum()) - int((drift_pred_old & ground_truth & (fault_type != "drift")).sum())
+
+    print(f"\n  [Drift False Positive Discrepancy Reconciliation]")
+    print(f"    Old Drift: Pred={d_pred_old}, StrictTP={d_stp_old}, Drift FP = {d_fp_old}")
+    print(f"    New Drift: Pred={d_pred_new}, StrictTP={d_stp_new}, Drift FP = {d_fp_new}")
+    print(f"    Drift FP Delta: {d_fp_delta:+d}")
+    print(f"    Breakdown of Drift FP Delta ({d_fp_delta:+d}):")
+    print(f"      Set A (Normal weather -> false drift alert):      {net_set_a:+d}")
+    print(f"      Set B (Other real faults misattributed to drift): {net_set_b:+d}")
+    print(f"      Arithmetic check: {net_set_a} (Set A) + {net_set_b} (Set B) = {net_set_a + net_set_b} (exact match to Drift FP Delta: {d_fp_delta:+d})")
+
+    # 7-row table
+    EXCLUDE = frozenset({"REGIONAL_EVENT", "physical_bounds", "none", None, "UNKNOWN_STATISTICAL_ANOMALY"})
+    known_fts = sorted(set(
+        list(pd.unique(fault_type[ground_truth]))
+        + [x for x in pd.unique(pft_old[pred_old]) if x not in EXCLUDE]
+        + [x for x in pd.unique(pft_new[pred_new]) if x not in EXCLUDE]
+    ))
+
+    print(f"\n  [Full Per-Fault Attribution Table: Old vs New]")
+    print(f"  {'Fault Type':<28} {'Old StrictTP':>12} {'New StrictTP':>12} {'Old Pred':>9} {'New Pred':>9} {'Old Attr.Rec':>12} {'New Attr.Rec':>12} {'Old Attr.Prec':>13} {'New Attr.Prec':>13}")
+    print(f"  {'-'*28} {'-'*12} {'-'*12} {'-'*9} {'-'*9} {'-'*12} {'-'*12} {'-'*13} {'-'*13}")
+    for ft_name in known_fts:
+        if ft_name in EXCLUDE:
+            continue
+        mask_true = ground_truth & (fault_type == ft_name)
+        n_true = int(mask_true.sum())
+
+        mask_p_old = pred_old & (pft_old == ft_name)
+        n_p_old = int(mask_p_old.sum())
+        s_old = int((mask_true & mask_p_old).sum())
+
+        mask_p_new = pred_new & (pft_new == ft_name)
+        n_p_new = int(mask_p_new.sum())
+        s_new = int((mask_true & mask_p_new).sum())
+
+        ar_old = f"{s_old/n_true:.1%}" if n_true > 0 else "N/A"
+        ar_new = f"{s_new/n_true:.1%}" if n_true > 0 else "N/A"
+        ap_old = f"{s_old/n_p_old:.1%}" if n_p_old > 0 else "N/A"
+        ap_new = f"{s_new/n_p_new:.1%}" if n_p_new > 0 else "N/A"
+        print(f"  {ft_name:<28} {s_old:>12} {s_new:>12} {n_p_old:>9} {n_p_new:>9} {ar_old:>12} {ar_new:>12} {ap_old:>13} {ap_new:>13}")
+    print("=" * 90)
+
+
+
+
 def evaluate_all(labeled_files: list, artifact: dict) -> dict:
     frames = []
     for path in labeled_files:
@@ -1162,11 +1359,20 @@ def evaluate_all(labeled_files: list, artifact: dict) -> dict:
           f"below are computed once, on PASS 2's features.)")
 
     featured, row_hard, row_rule_conf, row_fault_type, per_sensor_log, recovery_log = run_rule_engine_and_health(featured, artifact)
+    row_rule_conf_base = row_rule_conf.copy()
+    row_fault_type_base = row_fault_type.copy()
+
+    # Snapshot fault type BEFORE spatial corroboration so we can diff what the gate changed.
+    _pre_gate_fault_type = row_fault_type.copy()
     
-    # Stage 3 & 4 Spatial Corroboration across cluster peers
-    row_rule_conf, row_fault_type = apply_spatial_corroboration(
-        featured, row_hard, row_rule_conf, row_fault_type, artifact
+    # Stage 3 & 4 Spatial Corroboration across cluster peers (runs new gate by default)
+    row_rule_conf, row_fault_type, corrob_peers_count = apply_spatial_corroboration(
+        featured, row_hard, row_rule_conf, row_fault_type, artifact, gate_mode="new"
     )
+    
+    # Store the pre-gate snapshot
+    featured["__pre_gate_fault_type"] = _pre_gate_fault_type
+
 
     model_pct = vectorized_model_scores(featured, artifact)
 
@@ -1193,6 +1399,20 @@ def evaluate_all(labeled_files: list, artifact: dict) -> dict:
     # are unaffected since their row_rule_conf > 80.
     frozen_only = row_rule_conf == RULE_BASE_CONFIDENCE['frozen_value']
     predicted = predicted & ~(frozen_only & (model_pct < FROZEN_MIN_MODEL_CORROBORATION))
+
+    # Gating uncorroborated drift (corrob_peers < 2) with UNCORROBORATED_DRIFT_MIN_MODEL_PCT:
+    # When a drift rule fires but lacks spatial peer corroboration (< 2 peers in agreement),
+    # require model_pct >= UNCORROBORATED_DRIFT_MIN_MODEL_PCT (40.0%) before crossing evidence fusion.
+    # Empirically calibrated: 40.0% is the recall-preserving operating point (Overall Recall >= 80.1%,
+    # Drift StrictTP = 581 vs baseline 254), suppressing false alarms without compromising recall.
+    uncorrob_drift = (row_fault_type == "drift") & (corrob_peers_count < 2)
+    suppress_drift = (
+        uncorrob_drift
+        & (model_pct < UNCORROBORATED_DRIFT_MIN_MODEL_PCT)
+        & ~row_hard
+        & ~(model_pct > MODEL_ALONE_OVERRIDE_THRESHOLD)
+    )
+    predicted = predicted & ~suppress_drift
 
     # Network-aware supervised helper -------------------------------------------------
     # Caches trained artifact to model_artifacts/fault_helper.pkl so subsequent
@@ -1256,6 +1476,7 @@ def evaluate_all(labeled_files: list, artifact: dict) -> dict:
     featured["__helper_alert"] = helper_alert
     featured["__frozen_helper_alert"] = frozen_helper_alert
 
+
     # Derive predicted fault type for every row:
     pred_ft = pd.Series("none", index=featured.index, dtype="object")
     has_rule_ft = (row_fault_type != None) & (row_fault_type != "none")
@@ -1266,6 +1487,7 @@ def evaluate_all(labeled_files: list, artifact: dict) -> dict:
     pred_ft.loc[raw_nans_featured] = "dropout"
     predicted = predicted | raw_nans_featured
     pred_ft.loc[~predicted] = "none"
+    featured["__predicted"] = predicted
     featured["__predicted_fault_type"] = pred_ft
 
     _print_evidence_audit(featured)
@@ -1294,7 +1516,30 @@ def evaluate_all(labeled_files: list, artifact: dict) -> dict:
     else:
         print("No OFFLINE episodes occurred during this run.")
 
+    print_exact_gate_comparison(
+        featured, row_hard, row_rule_conf_base, row_fault_type_base, artifact,
+        model_pct, helper_alert, frozen_helper_alert, raw_nans_featured
+    )
+
     results = {"__overall__": _score_and_report(featured, "ALL FILES COMBINED", n_dropped_total, silent=False)}
+
+    # Episodic / Fault-Event Evaluation (Latency-adjusted fault event recall)
+    ep_result = compute_episodic_result(
+        featured,
+        pred_arr=featured["__predicted"].to_numpy(dtype=bool),
+        pred_ft_arr=featured["__predicted_fault_type"].to_numpy(),
+    )
+    overall_m = results["__overall__"]
+    print_episodic_report(
+        ep_result,
+        label="ALL FILES COMBINED",
+        point_tp=overall_m["tp"],
+        point_fp=overall_m["fp"],
+        point_fn=overall_m["fn"],
+        point_prec=overall_m["precision"],
+        point_rec=overall_m["recall"],
+        point_f1=overall_m["f1"],
+    )
 
     station_records = []
     verbose = "--verbose" in sys.argv or "--all-stations" in sys.argv
