@@ -469,7 +469,7 @@ def _cusum_evidence(
     return None
 
 
-def _multivariate_evidence(featured_buffer: pd.DataFrame):
+def _multivariate_evidence(featured_buffer: pd.DataFrame, active_spike_params: set = None):
     """
     §4/§8's reference implementation. TWO independent trigger paths
     (see config.py's MULTIVARIATE_VAPOR_CONSISTENCY_THRESHOLD comment
@@ -527,6 +527,8 @@ def _multivariate_evidence(featured_buffer: pd.DataFrame):
         return [], set()
 
     def _fires(row) -> bool:
+        if active_spike_params and ("temp" in active_spike_params or "humidity" in active_spike_params):
+            return False
         temp_dev = row.get("temp_deviation")
         humidity_dev = row.get("humidity_deviation")
         pressure_dev = row.get("pressure_deviation")
@@ -618,6 +620,9 @@ def _rule_checks(raw_reading: dict, feature_row: pd.Series, history_df: pd.DataF
 
     # frozen_value -- §1, deterministic floor-match computed once in
     # features.py; this file just reads the boolean off feature_row.
+
+    active_spike_params = set()
+
     for param, prefix in PARAM_PREFIXES.items():
         req = FROZEN_CONSECUTIVE_REQUIRED_PRESSURE if param == "pressure_hpa" else FROZEN_CONSECUTIVE_REQUIRED
         streak = feature_row.get(f"{prefix}_frozen_streak", 0)
@@ -682,37 +687,55 @@ def _rule_checks(raw_reading: dict, feature_row: pd.Series, history_df: pd.DataF
         featured_buffer = _featurize_buffer(history_df)
     from model.spike_tracker import init_spike_state, step_spike_state, SPIKE_WINDOW_HOURS
     
-    window_size = SPIKE_WINDOW_HOURS + 1
+    MAX_SPIKE_REPLAY_ROWS = 200  # safety cap against data gaps / abnormal cadence
+
     if len(featured_buffer) > 0:
-        replay_rows = featured_buffer.iloc[-window_size:] if len(featured_buffer) > window_size else featured_buffer
+        latest_ts = featured_buffer["timestamp"].iloc[-1]
+        cutoff = latest_ts - pd.Timedelta(hours=SPIKE_WINDOW_HOURS)
+        replay_rows = featured_buffer[featured_buffer["timestamp"] >= cutoff]
+        if len(replay_rows) > MAX_SPIKE_REPLAY_ROWS:
+            replay_rows = replay_rows.iloc[-MAX_SPIKE_REPLAY_ROWS:]
+
         for param, prefix in PARAM_PREFIXES.items():
             spike_thresh = get_threshold(thresholds, "spike", prefix, station_id)
             state = init_spike_state()
-            final_conf = 0.0
-            final_status = "IDLE"
-            final_reason = ""
+            final_conf, final_status, final_reason = 0.0, "IDLE", ""
+            prev_ts = None
             for i in range(len(replay_rows)):
                 row = replay_rows.iloc[i]
                 val = row.get(param)
                 dev = row.get(f"{prefix}_deviation")
+                noise_std = row.get(f"{prefix}_rolling_std")
+                ts = row.get("timestamp")
+                dt_hours = (
+                    (ts - prev_ts).total_seconds() / 3600.0
+                    if prev_ts is not None and ts is not None else 1.0
+                )
+                prev_ts = ts
+                
+                h = ts.hour if ts is not None else 0
+                expected_roc = get_expected_roc(station_id, prefix, h)
+                
                 conf, status, reason = step_spike_state(
-                    val, dev, spike_thresh, SPIKE_DEVIATION_MULTIPLIER, state, graduated_confidence_spike
+                    val, dev, spike_thresh, SPIKE_DEVIATION_MULTIPLIER, state,
+                    graduated_confidence_spike, dt_hours=dt_hours, noise_std=noise_std,
+                    expected_roc=expected_roc,
                 )
                 if i == len(replay_rows) - 1:
-                    final_conf = conf
-                    final_status = status
-                    final_reason = reason
-            
+                    final_conf, final_status, final_reason = conf, status, reason
+
             if final_conf > 0:
+                if final_status in ("PROVISIONAL", "CONFIRMED_SPIKE"):
+                    active_spike_params.add(prefix)
                 val = replay_rows.iloc[-1].get(param)
                 fired.append({
-                    "type": "spike",
+                    "type": "spike" if final_status == "CONFIRMED_SPIKE" else "provisional_spike",
                     "parameter": param,
                     "confidence": final_conf,
                     "observed_value": float(val) if pd.notna(val) else None,
                     "threshold": f">{spike_thresh * SPIKE_DEVIATION_MULTIPLIER:.1f}",
                     "reason": final_reason,
-                    "basis": "provisional" if final_status == "PROVISIONAL" else "confirmed"
+                    "basis": "provisional" if final_status == "PROVISIONAL" else "confirmed",
                 })
 
     # Extract current hour once for the CUSUM diurnal baseline lookup.
@@ -731,9 +754,9 @@ def _rule_checks(raw_reading: dict, feature_row: pd.Series, history_df: pd.DataF
         if cusum_hit:
             fired.append(cusum_hit)
 
-    # mv_evidence, mv_fast_path = _multivariate_evidence(featured_buffer)
-    # fired.extend(mv_evidence)
-    # fast_path_offline_params |= mv_fast_path
+    mv_evidence, mv_fast_path = _multivariate_evidence(featured_buffer, active_spike_params)
+    fired.extend(mv_evidence)
+    fast_path_offline_params |= mv_fast_path
 
     return {
         "fired": fired,

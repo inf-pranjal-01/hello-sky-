@@ -128,7 +128,7 @@ SPIKE_REVERSION_RATIO = 0.50
 # The reversion shape alone is common in naturally variable pressure.
 # The middle point must also be materially beyond its calibrated
 # station/parameter threshold before a causal spike is promoted.
-SPIKE_DEVIATION_MULTIPLIER = 1.5
+SPIKE_DEVIATION_MULTIPLIER = 1.1
 
 # Per-rule base confidence (0-100) -- "how sure is this ONE piece of
 # evidence, on its own." Single source of truth for detect.py (live)

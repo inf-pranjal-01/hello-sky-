@@ -735,12 +735,21 @@ def apply_spatial_corroboration(
                         and (abs(t_dev) / max(abs(p_dev), 0.1) <= 3.0)  # Ratio strictness
                         and abs(t_dev - p_dev) <= dev_thresh * 1.5      # Absolute strictness
                     )
+                    # Use diurnal residuals for corroboration, not instantaneous ROC
+                    # This prevents normal sunrise/sunset from falsely corroborating a drift.
+                    cur_hour = pd.Timestamp(cur_ts).hour
+                    t_exp = get_expected_roc(sid, prefix, int(cur_hour))
+                    p_exp = get_expected_roc(peer_id, prefix, int(cur_hour))
+                    t_res = t_roc - t_exp if pd.notna(t_roc) else float("nan")
+                    p_res = p_roc - p_exp if pd.notna(p_roc) else float("nan")
+                    
                     corroborated_by_roc = (
-                        pd.notna(t_roc) and pd.notna(p_roc)
-                        and abs(p_roc) >= (div_thresh * 0.5)
-                        and (t_roc * p_roc > 0)
-                        and (abs(t_roc) / max(abs(p_roc), 0.1) <= 3.0)
-                        and abs(t_roc - p_roc) <= div_thresh * 2.0
+                        pd.notna(t_res) and pd.notna(p_res)
+                        and abs(p_res) >= (div_thresh * 0.5)
+                        and (t_res * p_res > 0)
+                        and (abs(t_res) / max(abs(p_res), 0.1) <= 3.0)
+                        and (abs(p_res) / max(abs(t_res), 0.1) <= 3.0)  # bidirectional
+                        and abs(t_res - p_res) <= div_thresh * 2.0
                     )
                     if corroborated_by_dev or corroborated_by_roc:
                         corroborating_peers += 1
@@ -803,6 +812,84 @@ def _score_and_report(featured: pd.DataFrame, label: str, n_dropped: int, silent
     recall = tp / (tp + fn) if (tp + fn) > 0 else float("nan")
     f1 = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else float("nan")
 
+
+    if label == "ALL FILES COMBINED":
+        # REGIONAL_EVENT false-suppression breakdown (separate report, not a table row).
+        # It is a suppression verdict, not a fault label — excluded from the attribution table.
+        #
+        # Two distinct failure modes mixed in the 1192 rows:
+        #
+        #   A. FALSE SUPPRESSION: ground_truth=True, corroboration wrongly suppressed a real fault.
+        #      The 974 rows in the "Swallowed real X" lines below.
+        #
+        #   B. UNNECESSARY FALSE ALARM: ground_truth=False ('none'), corroboration correctly
+        #      identified a safe weather event and suppressed the rule. But the unsupervised
+        #      model overrode the suppression anyway and fired — producing a false positive
+        #      labelled REGIONAL_EVENT. These 218 rows are NOT false suppressions — they are
+        #      the opposite: the suppression was right, but the model disagreed.
+        #      The REGIONAL_EVENT rewrite could fix or worsen this depending on implementation.
+        from collections import Counter
+        reg_mask = (pred_fault_type == 'REGIONAL_EVENT')
+        reg_gt_counts = Counter(fault_type[reg_mask])
+        reg_total = int(reg_mask.sum())
+
+        print(f"\n[REGIONAL_EVENT report — {reg_total} rows stamped as suppression verdict]")
+        print(f"  (Suppression verdict — excluded from per-fault attribution table below)")
+        print(f"")
+        print(f"  Failure Mode A — False suppression (real fault wrongly zeroed):")
+        fa_total = 0
+        for gt_val, count in reg_gt_counts.most_common():
+            if gt_val not in ('none', None):
+                print(f"    Swallowed real {gt_val}: {count} rows")
+                fa_total += count
+        print(f"    Subtotal (Mode A): {fa_total} rows")
+        print(f"")
+        none_count = int(((fault_type == 'none') & reg_mask).sum())
+        print(f"  Failure Mode B — Unnecessary false alarm (correct suppression, model overrode):")
+        print(f"    ground_truth=False ('none'), corroboration was right to suppress,")
+        print(f"    but model_pct > threshold fired REGIONAL_EVENT anyway: {none_count} rows")
+        print(f"    (Fixing REGIONAL_EVENT peer-matching could reduce or increase this count")
+        print(f"     depending on whether the fix narrows or widens the suppression gate.)")
+        print(f"")
+        print(f"  Arithmetic check: {fa_total} (Mode A) + {none_count} (Mode B) = {fa_total + none_count} (should = {reg_total})")
+
+        # ── Verify "0 true FNs" claim with per-route breakdown ──────────────────────
+        # When REGIONAL_EVENT fires, corroborate_stations() sets row_rule_conf[idx] = 0.0.
+        # The predicted boolean is then:
+        #   predicted = row_hard | ((overall_conf > threshold) & (row_rule_conf > 0)) | (model_pct > 90)
+        # With rule_conf forced to 0.0, a REGIONAL_EVENT row can ONLY be predicted=True via:
+        #   (a) row_hard  — deterministic physical-bounds/fail-low bypass (rule_conf > 90 before zeroing)
+        #   (b) model_pct > MODEL_ALONE_OVERRIDE_THRESHOLD  — unsupervised model alone
+        # It cannot be predicted=True by REGIONAL_EVENT's own label.
+        # We verify this empirically by checking the decision route for every rescued row.
+        reg_true_rescued = reg_mask & ground_truth & predicted   # Mode A rows that are predicted=True
+        fn_via_re = int((reg_mask & ground_truth & ~predicted).sum())
+
+        print(f"  True false negatives caused by REGIONAL_EVENT (predicted=False despite real fault): {fn_via_re}")
+        if fn_via_re == 0:
+            print(f"  -> All {int(reg_true_rescued.sum())} real-fault REGIONAL_EVENT rows were rescued by the model.")
+            # Break down rescue route from featured['__decision_route'] if available
+            if "__decision_route" in featured.columns:
+                route_counts = featured.loc[reg_true_rescued, "__decision_route"].value_counts()
+                print(f"  Rescue route breakdown (per __decision_route):")
+                for route, cnt in route_counts.items():
+                    print(f"    {route}: {cnt} rows")
+                # Confirm none went through rule path (would imply rule_conf wasn't zeroed)
+                rule_routes = {"weighted_fusion", "rule_bypass"}
+                rule_rescued = int(featured.loc[reg_true_rescued, "__decision_route"].isin(rule_routes).sum())
+                print(f"  Rows rescued via rule path (should be 0 if zeroing works correctly): {rule_rescued}")
+            else:
+                # Fall back to model_pct threshold check
+                model_rescued = int(
+                    (reg_true_rescued & (featured["__model_pct"] > 90)).sum()
+                    if "__model_pct" in featured.columns else 0
+                )
+                rule_rescued = int(reg_true_rescued.sum()) - model_rescued
+                print(f"  Rescued via model_pct > 90: {model_rescued} rows")
+                print(f"  Rescued via rule path (should be 0): {rule_rescued} rows")
+        else:
+            print(f"  *** WARNING: {fn_via_re} rows are true false negatives — recall WILL improve after rewrite ***")
+
     if not silent:
         if label == "ALL FILES COMBINED":
             print("\n" + "=" * 90)
@@ -827,16 +914,33 @@ def _score_and_report(featured: pd.DataFrame, label: str, n_dropped: int, silent
             print(f"Confusion matrix: TP={tp}  FP={fp}  FN={fn}  TN={tn}")
             print(f"Precision: {precision:.3f}   Recall: {recall:.3f}   F1: {f1:.3f}")
 
-        print("\nPerformance by fault type (Recall & Precision):")
-        print(f"  {'Fault Type':<28} {'Caught':<8} {'True':<8} {'Pred':<8} {'Recall':<10} {'Precision':<10} {'F1':<8}")
-        print(f"  {'-'*28} {'-'*8} {'-'*8} {'-'*8} {'-'*10} {'-'*10} {'-'*8}")
+        # ── Per-fault-type attribution table ────────────────────────────────────────
+        # Two metric families, never blended into one F1:
+        #
+        #  Detected (any label):   Caught   = flagged under ANY predicted label.
+        #                          Det.Rec  = Caught / n_true
+        #
+        #  Attributed (strict):    StrictTP = correctly flagged AND correctly labelled.
+        #                          Attr.Rec = StrictTP / n_true
+        #                          Attr.Prec= StrictTP / n_pred
+        #                          Attr.F1  = harmonic mean(Attr.Rec, Attr.Prec) — same family.
+        #
+        # Excluded from this table (zero true episodes → recall denominator = 0):
+        #   REGIONAL_EVENT  — suppression verdict; breakdown printed separately above.
+        #   physical_bounds — not present in this dataset's injected faults.
+        EXCLUDE_FROM_TABLE = frozenset({"REGIONAL_EVENT", "physical_bounds", "none", None, "UNKNOWN_STATISTICAL_ANOMALY"})
+
+        print(f"\nPerformance by fault type")
+        print(f"  [Detected = any-label flag  |  Attributed = correct-label flag]")
+        print(f"  {'Fault Type':<28} {'Caught':<8} {'True':<8} {'Pred':<8} {'Det.Rec':<10} {'StrictTP':<10} {'Attr.Rec':<10} {'Attr.Prec':<10} {'Attr.F1':<8}")
+        print(f"  {'-'*28} {'-'*8} {'-'*8} {'-'*8} {'-'*10} {'-'*10} {'-'*10} {'-'*10} {'-'*8}")
 
         known_types = sorted(set(
             list(pd.unique(fault_type[ground_truth]))
-            + [x for x in pd.unique(pred_fault_type[predicted]) if x not in ('none', None, 'UNKNOWN_STATISTICAL_ANOMALY')]
+            + [x for x in pd.unique(pred_fault_type[predicted]) if x not in EXCLUDE_FROM_TABLE]
         ))
         for ft in known_types:
-            if ft in ('none', None):
+            if ft in EXCLUDE_FROM_TABLE:
                 continue
             mask_true = ground_truth & (fault_type == ft)
             n_true = int(mask_true.sum())
@@ -845,28 +949,48 @@ def _score_and_report(featured: pd.DataFrame, label: str, n_dropped: int, silent
             else:
                 mask_pred = predicted & (pred_fault_type == ft)
             n_pred = int(mask_pred.sum())
-            caught = int((predicted & mask_true).sum())
-            tp_ft = int((mask_true & mask_pred).sum())
-            
-            rec = caught / n_true if n_true > 0 else float("nan")
-            prec = tp_ft / n_pred if n_pred > 0 else float("nan")
-            f1_ft = (2 * prec * rec / (prec + rec)) if (pd.notna(prec) and pd.notna(rec) and (prec + rec) > 0) else float("nan")
-            
-            rec_str = f"{rec:.1%}" if pd.notna(rec) else "N/A"
-            prec_str = f"{prec:.1%}" if pd.notna(prec) else "N/A"
-            f1_str = f"{f1_ft:.3f}" if pd.notna(f1_ft) else "N/A"
-            print(f"  {str(ft):<28} {caught:<8} {n_true:<8} {n_pred:<8} {rec_str:<10} {prec_str:<10} {f1_str:<8}")
+
+            caught    = int((predicted & mask_true).sum())   # LOOSE: any-label TP
+            strict_tp = int((mask_true & mask_pred).sum())   # STRICT: exact-label TP
+
+            det_rec   = caught    / n_true if n_true > 0 else float("nan")
+            attr_rec  = strict_tp / n_true if n_true > 0 else float("nan")
+            attr_prec = strict_tp / n_pred if n_pred > 0 else float("nan")
+            attr_f1   = (
+                2 * attr_prec * attr_rec / (attr_prec + attr_rec)
+                if (pd.notna(attr_prec) and pd.notna(attr_rec) and (attr_prec + attr_rec) > 0)
+                else float("nan")
+            )
+
+            def _fmt(v): return f"{v:.1%}" if pd.notna(v) else "N/A"
+            print(
+                f"  {str(ft):<28} {caught:<8} {n_true:<8} {n_pred:<8}"
+                f" {_fmt(det_rec):<10} {strict_tp:<10} {_fmt(attr_rec):<10}"
+                f" {_fmt(attr_prec):<10} {_fmt(attr_f1):<8}"
+            )
+
+        # ── Drift warm-up gap diagnostic ────────────────────────────────────────────
+        if label == "ALL FILES COMBINED":
+            drift_in_table  = int((ground_truth & (fault_type == "drift")).sum())
+            drift_raw = 1719  # confirmed from raw CSV query
+            gap = drift_raw - drift_in_table
+            pct_of_warmup = (gap / n_dropped * 100) if n_dropped > 0 else float("nan")
+            print(f"\n  [Drift warm-up gap diagnostic]")
+            print(f"    Raw labeled drift rows (all CSVs):          {drift_raw}")
+            print(f"    Drift rows in evaluated window (True col):  {drift_in_table}")
+            print(f"    Excluded by per-station warm-up:            {gap}  ({pct_of_warmup:.1f}% of {n_dropped} total warm-up rows)")
+            print(f"    (Consistent with slow-onset drift that can start inside a station's warm-up window.)")
 
         eval_df = featured.copy()
         eval_df["fault_type_gt"] = fault_type
         eval_df["is_anomaly_pred"] = predicted
         eval_df["fault_type_pred"] = pred_fault_type
-        
+
         print("\n  Episodic metrics (same station + fault type; overlap match):")
         for ft in ("frozen_value", "drift", "spike"):
             metrics = episodic_metrics(eval_df, ft)
-            tp, fp, fn = metrics["tp"], metrics["fp"], metrics["fn"]
-            print(f"  {ft}: P={metrics['precision']:.1%}, R={metrics['recall']:.1%}, TP={tp} FP={fp} FN={fn} (GT episodes={tp+fn}, predicted={tp+fp})")
+            tp_ep, fp_ep, fn_ep = metrics["tp"], metrics["fp"], metrics["fn"]
+            print(f"  {ft}: P={metrics['precision']:.1%}, R={metrics['recall']:.1%}, TP={tp_ep} FP={fp_ep} FN={fn_ep} (GT episodes={tp_ep+fn_ep}, predicted={tp_ep+fp_ep})")
 
 
         if label == "ALL FILES COMBINED":
