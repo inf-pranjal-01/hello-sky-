@@ -1,0 +1,61 @@
+.sg-report-period-container {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  padding: 0.75rem 1.25rem;
+  background: var(--color-surface-sunken, rgba(15, 23, 42, 0.4));
+  border: 1px solid var(--color-border-subtle, rgba(255, 255, 255, 0.08));
+  border-radius: var(--radius-md, 8px);
+  margin-bottom: 1.5rem;
+}
+
+.sg-report-period-label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--color-text-secondary, #cbd5e1);
+}
+
+.sg-report-period-group {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.sg-report-period-btn {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--color-border-subtle, rgba(255, 255, 255, 0.08));
+  border-radius: var(--radius-sm, 6px);
+  padding: 5px 12px;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--color-text-secondary, #94a3b8);
+  cursor: pointer;
+  transition: all 150ms ease;
+}
+
+.sg-report-period-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--color-text-primary, #f8fafc);
+}
+
+.sg-report-period-btn--active {
+  background: var(--color-accent-cyan, #38bdf8);
+  border-color: var(--color-accent-cyan, #38bdf8);
+  color: #0b1120;
+  font-weight: 700;
+}
+
+.sg-report-period-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.sg-report-period-btn:focus-visible {
+  outline: 2px solid var(--color-accent-cyan, #38bdf8);
+  outline-offset: 1px;
+}

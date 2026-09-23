@@ -1,0 +1,112 @@
+.sg-anomaly-analytics-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--spacing-md, 1rem);
+  margin-bottom: 1.5rem;
+}
+
+.sg-anomaly-analytics-card {
+  padding: 1.25rem 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.sg-anomaly-analytics-card__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--color-border-subtle, rgba(255, 255, 255, 0.08));
+  padding-bottom: 0.5rem;
+}
+
+.sg-anomaly-analytics-card__title-group {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.sg-anomaly-analytics-card__title {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--color-text-primary, #f8fafc);
+  margin: 0;
+}
+
+.sg-anomaly-analytics-card__list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.875rem;
+}
+
+.sg-anomaly-analytics-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.sg-anomaly-analytics-row__meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.8125rem;
+}
+
+.sg-anomaly-analytics-row__label {
+  color: var(--color-text-secondary, #cbd5e1);
+  font-weight: 500;
+  text-transform: capitalize;
+}
+
+.sg-anomaly-analytics-row__count {
+  font-family: var(--font-mono, monospace);
+  font-weight: 600;
+  color: var(--color-text-primary, #f8fafc);
+}
+
+.sg-anomaly-analytics-row__track {
+  width: 100%;
+  height: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: var(--radius-sm, 4px);
+  overflow: hidden;
+}
+
+.sg-anomaly-analytics-row__bar {
+  height: 100%;
+  border-radius: var(--radius-sm, 4px);
+  transition: width 300ms ease;
+}
+
+.sg-anomaly-analytics-row__bar--critical {
+  background: var(--color-status-critical, #ef4444);
+}
+
+.sg-anomaly-analytics-row__bar--high {
+  background: #f97316;
+}
+
+.sg-anomaly-analytics-row__bar--medium {
+  background: var(--color-status-warning, #f59e0b);
+}
+
+.sg-anomaly-analytics-row__bar--low {
+  background: var(--color-status-optimal, #10b981);
+}
+
+.sg-anomaly-analytics-row__bar--type {
+  background: var(--color-accent-cyan, #38bdf8);
+}
+
+.sg-anomaly-analytics-card__empty {
+  text-align: center;
+  padding: 2rem 1rem;
+  color: var(--color-text-muted, #94a3b8);
+  font-size: 0.875rem;
+}
+
+@media (max-width: 900px) {
+  .sg-anomaly-analytics-grid {
+    grid-template-columns: 1fr;
+  }
+}

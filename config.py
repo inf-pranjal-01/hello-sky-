@@ -113,7 +113,7 @@ FUSION_ANOMALY_THRESHOLD = 50.0
 # At 95, only true sensor rail failures score high enough for this path
 # (sensor_fail_low, multivariate score >99 on the model). Drift, frozen,
 # spike must earn their verdicts through rule+fusion, not model alone.
-MODEL_ALONE_OVERRIDE_THRESHOLD = 95.0
+MODEL_ALONE_OVERRIDE_THRESHOLD = 85.0
 
 # Bypass: once a rule's own confidence is >= this, is_anomaly is forced
 # regardless of the blended score. UNCHANGED at 90. Only physical_bounds
@@ -170,7 +170,7 @@ RULE_BASE_CONFIDENCE = {
 def graduated_confidence_frozen(streak: int, req: int) -> float:
     """
     Graduated confidence for frozen_value:
-    80.0 floor for just crossing threshold up to 96.0 ceiling for 2x threshold streak.
+    80.0 floor for just crossing threshold up to 95.0 ceiling for 2x threshold streak.
     """
     if req <= 0:
         return 80.0
@@ -181,7 +181,7 @@ def graduated_confidence_frozen(streak: int, req: int) -> float:
 def graduated_confidence_drift(accumulator_val: float, threshold: float, is_ewma: bool = False) -> float:
     """
     Graduated confidence for drift (CUSUM/EWMA):
-    85.0 floor for just crossing threshold up to 97.0 ceiling at 2x threshold.
+    85.0 floor for just crossing threshold up to 95.0 ceiling at 2x threshold.
     """
     if threshold <= 0:
         return 85.0
@@ -192,7 +192,7 @@ def graduated_confidence_drift(accumulator_val: float, threshold: float, is_ewma
 def graduated_confidence_spike(abs_dev: float, spike_threshold: float, reversion_cleanliness: float = 1.0) -> float:
     """
     Graduated confidence for spike:
-    85.0 floor up to 94.0 ceiling based on deviation magnitude and reversion completeness.
+    85.0 floor up to 95.0 ceiling based on deviation magnitude and reversion completeness.
     """
     if spike_threshold <= 0:
         return 85.0
@@ -219,7 +219,7 @@ def graduated_confidence_multivariate(joint_z: float, threshold: float, confirme
     """
     Graduated confidence for multivariate_inconsistency:
     Single tier: 45.0 to 60.0.
-    Confirmed tier: 88.0 to 93.0.
+    Confirmed tier: 88.0 to 95.0.
     """
     if threshold <= 0:
         return 88.0 if confirmed else 45.0
@@ -247,9 +247,9 @@ SPATIAL_CORROBORATION_THRESHOLD_SIGMA = 1.5
 #
 # NEW: Allowance is now parameter-specific.
 CUSUM_DRIFT_ALLOWANCE = {
-    "temperature_c": 0.05,
-    "pressure_hpa": 0.02,
-    "humidity_pct": 0.05
+    "temperature_c": 0.1,
+    "pressure_hpa": 0.01,
+    "humidity_pct": 0.1,
 }
 # EWMA configuration for fast multi-timescale response
 EWMA_DRIFT_ALPHA = 0.05
@@ -260,16 +260,16 @@ EWMA_DRIFT_THRESHOLD = 2.5
 # on its own -- CUSUM must handle them. 7.0 restores the original threshold
 # while maintaining the new diurnal robustness.
 # (Update: now uses strict direction and proper residual draining).
-CUSUM_THRESHOLD = 4.0
+CUSUM_THRESHOLD = 1.2
 # CUSUM_DIRECTION_STREAK_REQUIRED: LOWERED to 4 (Pass 8 final).
 # Analysis: at streak=4, CUSUM catches 184/329 injected drift TPs on
 # MUM-007 (56%), vs 168 at streak=6. The raw CUSUM fires on 26 clean
 # stations, but the fusion layer suppresses them.
 # (Update: We now strictly require all 4 steps to be in the same direction).
-CUSUM_DIRECTION_STREAK_REQUIRED = 4
+CUSUM_DIRECTION_STREAK_REQUIRED = 3
 
 # Minimum model confidence required to allow a drift rule to fire
-DRIFT_MIN_MODEL_CORROBORATION = 25.0
+DRIFT_MIN_MODEL_CORROBORATION = 0.0
 
 # ---------------------------------------------------------------------
 # FROZEN -- per-parameter streak requirements (Pass 1 precision drive).
@@ -294,8 +294,8 @@ DRIFT_MIN_MODEL_CORROBORATION = 25.0
 # can apply them independently. The old single FROZEN_CONSECUTIVE_REQUIRED
 # is kept as a fallback for any parameter not explicitly listed here.
 # ---------------------------------------------------------------------
-FROZEN_CONSECUTIVE_REQUIRED = 4          # default for temp + humidity
-FROZEN_CONSECUTIVE_REQUIRED_PRESSURE = 8  # pressure is far more stable in real weather
+FROZEN_CONSECUTIVE_REQUIRED = 5          # default for temp + humidity
+FROZEN_CONSECUTIVE_REQUIRED_PRESSURE = 6  # pressure is far more stable in real weather
 # Minimum model_pct required for a frozen streak to contribute to the
 # anomaly verdict (Pass 6). At frozen_value confidence=80 (below bypass),
 # fusion gives 0.6*model + 0.4*80. For fusion > 72 the model must score
@@ -307,7 +307,7 @@ FROZEN_CONSECUTIVE_REQUIRED_PRESSURE = 8  # pressure is far more stable in real 
 # is checked in evaluate.py and detect.py BEFORE including frozen in
 # the anomalous flag -- it is a pre-condition on the rule firing, not
 # an additional post-fusion gate.
-FROZEN_MIN_MODEL_CORROBORATION = 65.0
+FROZEN_MIN_MODEL_CORROBORATION = 0.0
 
 # ---------------------------------------------------------------------
 # §4 -- Multivariate inconsistency. TWO independent trigger paths now
@@ -334,7 +334,7 @@ MULTIVARIATE_TEMP_DEVIATION_THRESHOLD = 3.0        # temp: |z| must clear this
 MULTIVARIATE_HUMIDITY_DEVIATION_THRESHOLD = 1.5    # humidity: more lenient -- naturally noisier day to day
 MULTIVARIATE_PRESSURE_FLAT_THRESHOLD = 1.5         # pressure: must STAY under this while temp/humidity are both far outside it
 MULTIVARIATE_VAPOR_CONSISTENCY_THRESHOLD = 20.0    # RAISED 8.0->15.0->20.0: 15 left 167 multivariate FPs on clean stations; at 20 the injected fault VPD (mean=25, min>15) still fully caught while eliminating real monsoon false fires
-MULTIVARIATE_PERSISTENCE_REQUIRED = 3              # §4, final: 2 consecutive readings = confirmed
+MULTIVARIATE_PERSISTENCE_REQUIRED = 2              # §4, final: 2 consecutive readings = confirmed
 MULTIVARIATE_TEMP_ATTRIBUTION_WEIGHT = 1.5
 MULTIVARIATE_ATTRIBUTION_DOMINANCE = 0.7
 
@@ -382,9 +382,9 @@ SEVERITY_MEDIUM_FLOOR = 55.0
 # Moving them here is the explicit fix the blueprint calls for.
 # ---------------------------------------------------------------------
 # ExtraTrees binary fault-helper classifier alert threshold (high-certainty bar).
-HELPER_ALERT_THRESHOLD = 0.85
+HELPER_ALERT_THRESHOLD = 0.90
 # Per-channel frozen-specialist alert threshold.
-FROZEN_HELPER_ALERT_THRESHOLD = 0.85
+FROZEN_HELPER_ALERT_THRESHOLD = 0.90
 
 
 def score_to_severity(score_pct: float) -> str:
@@ -407,3 +407,35 @@ def score_to_severity(score_pct: float) -> str:
 # Export spatial clusters for single-source-of-truth access
 from data_fetch import CLUSTERS
 
+
+# Diurnal Spike Suppression Parameters
+SPIKE_DIURNAL_MIN_PEERS = 2
+SPIKE_DIURNAL_CONSENSUS_FRACTION = 0.5
+SPIKE_DIURNAL_SUPPRESSION_FACTOR = 0.38
+SPIKE_DIURNAL_PEER_MIN_ROC = {
+    'temperature_c': 0.5,
+    'pressure_hpa': 0.2,
+    'humidity_pct': 1.0
+}
+
+# New Architecture Quorum Constants
+NETWORK_MIN_ELIGIBLE_PEERS = 2
+NETWORK_CORROBORATION_RATIO = 0.5
+
+# Centralized Physical Bounds (replacing duplicated values)
+PHYSICAL_BOUNDS = {
+    'temperature_c': (-50.0, 60.0),
+    'pressure_hpa': (850.0, 1085.0),
+    'humidity_pct': (0.0, 100.0)
+}
+
+# Centralized Fault Helper Alert Thresholds
+HELPER_ALERT_THRESHOLD = 0.90
+FROZEN_HELPER_ALERT_THRESHOLD = 0.90
+
+def get_station_normal_ranges(station_id: str) -> dict:
+    return {
+        'temperature_c': {'normal_min': 5.0, 'normal_max': 45.0},
+        'pressure_hpa': {'normal_min': 950.0, 'normal_max': 1050.0},
+        'humidity_pct': {'normal_min': 10.0, 'normal_max': 95.0}
+    }

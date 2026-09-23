@@ -25,7 +25,7 @@ class TestRuleBoundaries(unittest.TestCase):
             "humidity_pct": 50.0,
         }
         history_df = pd.DataFrame([raw_reading])
-        rules = _rule_checks(raw_reading, feature_row, history_df, artifact)
+        rules = _rule_checks(raw_reading, feature_row, history_df, history_df, artifact)
         self.assertFalse(any(r["type"] == "physical_bounds" for r in rules["fired"]))
         
         # Test just above upper threshold (out of bounds)
@@ -37,7 +37,7 @@ class TestRuleBoundaries(unittest.TestCase):
             "humidity_pct": 50.0,
         }
         history_df_hi = pd.DataFrame([raw_reading_hi])
-        rules_hi = _rule_checks(raw_reading_hi, feature_row, history_df_hi, artifact)
+        rules_hi = _rule_checks(raw_reading_hi, feature_row, history_df_hi, history_df_hi, artifact)
         self.assertTrue(any(r["type"] == "physical_bounds" for r in rules_hi["fired"]))
 
     def test_dropout_check(self):
@@ -56,7 +56,7 @@ class TestRuleBoundaries(unittest.TestCase):
             "humidity_pct": 50.0,
         }
         history_df = pd.DataFrame([raw_reading])
-        rules = _rule_checks(raw_reading, feature_row, history_df, artifact)
+        rules = _rule_checks(raw_reading, feature_row, history_df, history_df, artifact)
         self.assertTrue(any(r["type"] == "dropout" for r in rules["fired"]))
 
 if __name__ == '__main__':

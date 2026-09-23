@@ -1,0 +1,23 @@
+def build_features_for_latest(history_df: pd.DataFrame) -> pd.Series:
+    """
+    LIVE-MODE entry point, for detect.py -- NOT for training/eval.
+
+    Takes one station's recent history buffer (kept in-memory by
+    state.py, no CSV involved at all) and returns just the feature
+    vector for the LATEST reading in it. Includes rule-only signals too
+    (consec_diff / Nh_delta / floor_frozen_match / normalized_roc_1h),
+    since detect.py's rule layer needs them from the same computation
+    path as the model features -- same math, so training/serving/
+    rule-checking never quietly drift apart.
+
+    `history_df` should NOT include an is_anomaly column in live mode.
+
+    No spatial handling here or anywhere else in this file -- spatial
+    features were removed entirely (§9, see module docstring), not just
+    skipped in live mode.
+    """
+    df = add_temporal_features(history_df)
+    df = add_cross_parameter_features(df)
+    df = add_time_features(df)
+    df = add_rule_only_signals(df)
+    return df.iloc[-1]

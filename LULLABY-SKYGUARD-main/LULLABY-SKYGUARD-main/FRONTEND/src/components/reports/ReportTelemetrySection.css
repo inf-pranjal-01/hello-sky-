@@ -1,0 +1,122 @@
+.sg-report-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 1rem;
+}
+
+.sg-report-stat-card {
+  background: var(--color-surface-sunken, rgba(15, 23, 42, 0.4));
+  border: 1px solid var(--color-border-subtle, rgba(255, 255, 255, 0.05));
+  border-radius: var(--radius-md, 8px);
+  padding: 0.875rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.sg-report-stat-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  padding-bottom: 0.35rem;
+}
+
+.sg-report-stat-title {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--color-text-primary, #f8fafc);
+  margin: 0;
+}
+
+.sg-report-stat-table {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.sg-report-stat-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.75rem;
+  color: var(--color-text-secondary, #cbd5e1);
+}
+
+/* Chart Container */
+.sg-report-chart-container {
+  background: var(--color-surface-sunken, rgba(15, 23, 42, 0.5));
+  border: 1px solid var(--color-border-subtle, rgba(255, 255, 255, 0.05));
+  border-radius: var(--radius-md, 8px);
+  padding: 0.75rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.sg-report-chart-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.sg-report-chart-title {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--color-text-primary, #f8fafc);
+}
+
+.sg-report-chart-tabs {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: var(--radius-sm, 6px);
+  padding: 2px;
+}
+
+.sg-report-chart-tab {
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  padding: 2px 8px;
+  font-size: 0.75rem;
+  color: var(--color-text-muted, #94a3b8);
+  cursor: pointer;
+  transition: all 120ms ease;
+}
+
+.sg-report-chart-tab:hover {
+  color: var(--color-text-primary, #f8fafc);
+}
+
+.sg-report-chart-tab--active {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--color-text-primary, #f8fafc);
+  font-weight: 600;
+}
+
+.sg-report-svg-wrapper {
+  width: 100%;
+}
+
+.sg-report-svg {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+.sg-report-axis-text {
+  font-size: 9px;
+  font-family: var(--font-mono, monospace);
+  fill: var(--color-text-muted, #64748b);
+}
+
+.sg-report-empty-chart {
+  font-size: 0.8125rem;
+  color: var(--color-text-muted, #64748b);
+  text-align: center;
+  padding: 2rem 1rem;
+}

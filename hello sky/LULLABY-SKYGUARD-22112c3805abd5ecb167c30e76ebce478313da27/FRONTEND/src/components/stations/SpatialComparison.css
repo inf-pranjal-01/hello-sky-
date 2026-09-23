@@ -1,0 +1,139 @@
+.sg-spatial-comp-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: var(--spacing-md, 1rem);
+  margin-bottom: 1.5rem;
+}
+
+.sg-spatial-comp-card {
+  padding: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  transition: border-color 200ms ease;
+}
+
+.sg-spatial-comp-card--deviation {
+  border-color: rgba(245, 158, 11, 0.35);
+  background: linear-gradient(
+    180deg,
+    rgba(245, 158, 11, 0.04) 0%,
+    rgba(15, 23, 42, 0.8) 100%
+  );
+}
+
+.sg-spatial-comp-card__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--color-border-subtle, rgba(255, 255, 255, 0.06));
+  padding-bottom: 0.5rem;
+}
+
+.sg-spatial-comp-card__title-group {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.sg-spatial-comp-card__title {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--color-text-primary, #f8fafc);
+  margin: 0;
+}
+
+.sg-spatial-comp-card__notice {
+  font-size: 0.75rem;
+  color: var(--color-text-muted, #94a3b8);
+}
+
+/* Readings Comparison */
+.sg-spatial-comp-card__readings {
+  display: flex;
+  align-items: center;
+  justify-content: space-around;
+  background: var(--color-surface-sunken, rgba(15, 23, 42, 0.4));
+  border: 1px solid var(--color-border-subtle, rgba(255, 255, 255, 0.04));
+  border-radius: var(--radius-md, 8px);
+  padding: 0.75rem 0.5rem;
+}
+
+.sg-spatial-comp-card__col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+  text-align: center;
+}
+
+.sg-spatial-comp-card__col-label {
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-text-muted, #94a3b8);
+  font-weight: 600;
+}
+
+.sg-spatial-comp-card__col-val {
+  font-size: 1.125rem;
+  font-weight: 700;
+  color: var(--color-text-primary, #f8fafc);
+}
+
+.sg-spatial-comp-card__divider {
+  width: 1px;
+  height: 32px;
+  background: var(--color-border-subtle, rgba(255, 255, 255, 0.08));
+}
+
+/* Footer & Badge */
+.sg-spatial-comp-card__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.sg-spatial-comp-card__diff-group {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.8125rem;
+}
+
+.sg-spatial-comp-card__diff-label {
+  color: var(--color-text-muted, #94a3b8);
+}
+
+.sg-spatial-comp-card__diff-val {
+  font-weight: 700;
+  color: var(--color-status-optimal, #10b981);
+}
+
+.sg-spatial-comp-card__diff-val--warning {
+  color: var(--color-status-warning, #f59e0b);
+}
+
+.sg-spatial-comp-card__badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: var(--radius-sm, 6px);
+}
+
+.sg-spatial-comp-card__badge--ok {
+  background: rgba(16, 185, 129, 0.12);
+  color: var(--color-status-optimal, #10b981);
+  border: 1px solid rgba(16, 185, 129, 0.25);
+}
+
+.sg-spatial-comp-card__badge--dev {
+  background: rgba(245, 158, 11, 0.12);
+  color: var(--color-status-warning, #f59e0b);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+}

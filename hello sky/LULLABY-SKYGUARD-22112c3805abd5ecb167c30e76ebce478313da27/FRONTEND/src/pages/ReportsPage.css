@@ -1,0 +1,184 @@
+.sg-reports-page {
+  padding: var(--spacing-lg, 1.5rem) var(--spacing-xl, 2rem);
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.sg-reports-page__error {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4rem 2rem;
+}
+
+.sg-reports-page__error-box {
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px solid rgba(239, 68, 68, 0.25);
+  border-radius: var(--radius-lg, 12px);
+  padding: 2rem 2.5rem;
+  max-width: 480px;
+  text-align: center;
+}
+
+.sg-reports-page__error-box h2 {
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: var(--color-status-critical, #ef4444);
+  margin: 0 0 0.5rem;
+}
+
+.sg-reports-page__error-box p {
+  font-size: 0.875rem;
+  color: var(--color-text-secondary, #cbd5e1);
+  margin: 0;
+}
+
+.sg-reports-page__no-station {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6rem 2rem;
+}
+
+.sg-report-document {
+  display: flex;
+  flex-direction: column;
+}
+
+/* ─────────────────────────────────────────────────────────────
+   PRINT STYLESHEET OPTIMIZATION (@media print)
+   ───────────────────────────────────────────────────────────── */
+@media print {
+  /* Hide all non-printable UI elements */
+  .no-print,
+  .sg-header,
+  .sg-sidebar,
+  .sg-footer,
+  .sg-breadcrumbs,
+  nav,
+  button,
+  .sg-report-header__actions,
+  .sg-report-period-container,
+  .sg-report-chart-tabs {
+    display: none !important;
+  }
+
+  body,
+  #root,
+  .sg-app-shell,
+  .sg-main-content,
+  .sg-reports-page {
+    background: #ffffff !important;
+    color: #0f172a !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    max-width: 100% !important;
+    box-shadow: none !important;
+  }
+
+  .sg-report-document {
+    padding: 10mm 15mm !important;
+  }
+
+  .sg-report-header__title {
+    color: #0f172a !important;
+    font-size: 1.5rem !important;
+  }
+
+  .sg-report-header__subtitle {
+    color: #475569 !important;
+  }
+
+  .sg-report-header__meta-banner {
+    background: #f1f5f9 !important;
+    border: 1px solid #cbd5e1 !important;
+    color: #0f172a !important;
+  }
+
+  .sg-report-header__meta-val {
+    color: #0f172a !important;
+  }
+
+  .sg-report-section {
+    background: #ffffff !important;
+    border: 1px solid #cbd5e1 !important;
+    color: #0f172a !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+    margin-bottom: 12pt !important;
+    box-shadow: none !important;
+  }
+
+  .sg-report-section__title {
+    color: #0f172a !important;
+  }
+
+  .sg-report-section__badge {
+    color: #64748b !important;
+  }
+
+  .sg-report-station-card,
+  .sg-report-stat-card,
+  .sg-report-dist-card,
+  .sg-report-health-score-card,
+  .sg-report-health-info-card,
+  .sg-report-spatial-delta-card,
+  .sg-report-insights-card,
+  .sg-report-chart-container {
+    background: #f8fafc !important;
+    border: 1px solid #e2e8f0 !important;
+    color: #0f172a !important;
+    box-shadow: none !important;
+  }
+
+  .sg-report-meta-val,
+  .sg-report-meta-key,
+  .sg-report-stat-title,
+  .sg-report-insights-text,
+  .sg-report-spatial-verdict-text,
+  .sg-report-health-info-text {
+    color: #0f172a !important;
+  }
+
+  .sg-report-table thead th {
+    background: #f1f5f9 !important;
+    color: #0f172a !important;
+    border-bottom: 1px solid #cbd5e1 !important;
+  }
+
+  .sg-report-table tbody td {
+    color: #0f172a !important;
+    border-bottom: 1px solid #e2e8f0 !important;
+  }
+
+  .sg-report-type-cell {
+    color: #0f172a !important;
+  }
+
+  .sg-report-cause-cell {
+    color: #334155 !important;
+  }
+
+  .sg-report-dist-track,
+  .sg-report-health-progress-track {
+    background: #e2e8f0 !important;
+  }
+
+  .sg-report-spatial-verdict--ok {
+    background: #f0fdf4 !important;
+    border-color: #86efac !important;
+  }
+
+  .sg-report-spatial-verdict--dev {
+    background: #fffbeb !important;
+    border-color: #fde68a !important;
+  }
+
+  .sg-report-svg line {
+    stroke: #e2e8f0 !important;
+  }
+
+  .sg-report-axis-text {
+    fill: #64748b !important;
+  }
+}

@@ -1,0 +1,264 @@
+/* ========================================================================== */
+/* DashboardPage.css — SkyGuard AI Meteorological Control Room Layout         */
+/* ========================================================================== */
+
+.sg-dashboard-page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-8);
+  padding-bottom: 2.5rem;
+}
+
+/* Header & Operational Banner */
+.sg-dashboard-header-left {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.sg-dashboard-station-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.sg-station-title-id {
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--accent-cyan);
+  background-color: rgba(6, 182, 212, 0.1);
+  padding: 0.15rem 0.45rem;
+  border-radius: var(--radius-sm);
+}
+
+.sg-station-title-sep {
+  color: var(--text-muted);
+}
+
+.sg-station-title-name {
+  font-size: clamp(1.25rem, 2vw, 1.55rem);
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+/* Live freshness indicator */
+.sg-live-badge-container {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.35rem 0.7rem;
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  font-size: 0.75rem;
+}
+
+.sg-live-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+
+.sg-live-dot--live {
+  background-color: var(--status-optimal-text);
+  box-shadow: 0 0 8px var(--status-optimal-text);
+  animation: pulseDot 2s infinite;
+}
+
+.sg-live-dot--delayed {
+  background-color: var(--status-warning-text);
+}
+
+.sg-live-dot--stale {
+  background-color: var(--status-critical-text);
+}
+
+@keyframes pulseDot {
+  0% { transform: scale(0.95); opacity: 0.8; }
+  50% { transform: scale(1.2); opacity: 1; }
+  100% { transform: scale(0.95); opacity: 0.8; }
+}
+
+.sg-live-text {
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--text-primary);
+}
+
+.sg-live-time {
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+  font-size: 0.7rem;
+}
+
+/* WebSocket Ingestion Latency Readout Chip */
+.sg-latency-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.35rem 0.75rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-family: var(--font-mono);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  transition: all 0.25s ease-in-out;
+}
+
+.sg-latency-badge--live {
+  background: rgba(16, 185, 129, 0.12);
+  border: 1px solid rgba(16, 185, 129, 0.4);
+  color: #10b981;
+  box-shadow: 0 0 12px rgba(16, 185, 129, 0.15);
+}
+
+.sg-latency-badge--fallback {
+  background: rgba(245, 158, 11, 0.12);
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  color: #f59e0b;
+}
+
+.sg-latency-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background-color: currentColor;
+  box-shadow: 0 0 8px currentColor;
+  animation: pulseDot 1.5s infinite;
+}
+
+.sg-latency-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+/* SIH Demo button */
+.sg-sih-demo-btn {
+  border: 1px dashed var(--border-medium);
+  opacity: 0.85;
+}
+
+.sg-sih-demo-btn:hover {
+  opacity: 1;
+  border-color: var(--accent-blue);
+}
+
+.sg-sih-btn-text {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--accent-cyan);
+}
+
+.sg-sih-toast {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 0.7rem var(--space-4);
+  background-color: rgba(6, 182, 212, 0.12);
+  border: 1px solid var(--accent-cyan);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-size: 0.8rem;
+  line-height: 1.45;
+  animation: toastFadeIn 0.2s ease-out;
+}
+
+@keyframes toastFadeIn {
+  from { opacity: 0; transform: translateY(-6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Section Containers */
+.sg-dashboard-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.sg-section-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.sg-section-title {
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+.sg-endpoint-tag {
+  font-size: 0.675rem;
+  font-weight: 700;
+  color: var(--accent-cyan);
+  background-color: rgba(6, 182, 212, 0.08);
+  padding: 0.15rem 0.4rem;
+  border-radius: 4px;
+}
+
+/* Top 5 Metric Cards Responsive Grid */
+.sg-metric-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: var(--space-4);
+}
+
+/* Bottom 2-Column Anomaly Grid */
+.sg-anomaly-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-4);
+}
+
+/* Responsive Breakpoints */
+@media (max-width: 1024px) {
+  .sg-metric-grid {
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  }
+  .sg-anomaly-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 768px) {
+  .sg-station-title-name {
+    font-size: 1.2rem;
+  }
+  .sg-metric-grid {
+    grid-template-columns: 1fr;
+  }
+  .sg-dashboard-page {
+    gap: var(--space-5);
+  }
+}
+
+.sg-history-export {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-top: 0.85rem;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+}
+
+.sg-history-export__link {
+  flex: 0 0 auto;
+  color: var(--color-accent, #38bdf8);
+  text-decoration: none;
+  border: 1px solid color-mix(in srgb, var(--color-accent, #38bdf8) 45%, transparent);
+  border-radius: 0.4rem;
+  padding: 0.4rem 0.65rem;
+  font-weight: 600;
+}
+
+.sg-history-export__link:hover { background: color-mix(in srgb, var(--color-accent, #38bdf8) 12%, transparent); }

@@ -1,0 +1,99 @@
+.sg-report-health-layout {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 1rem;
+}
+
+.sg-report-health-score-card {
+  background: var(--color-surface-sunken, rgba(15, 23, 42, 0.4));
+  border: 1px solid var(--color-border-subtle, rgba(255, 255, 255, 0.05));
+  border-radius: var(--radius-md, 8px);
+  padding: 1rem 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.sg-report-health-score-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.sg-report-health-score-title {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-text-muted, #94a3b8);
+}
+
+.sg-report-health-score-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.sg-report-health-score-val {
+  font-size: 1.75rem;
+  font-weight: 800;
+  color: var(--color-text-primary, #f8fafc);
+  line-height: 1;
+}
+
+.sg-report-health-progress-track {
+  width: 100%;
+  height: 8px;
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.sg-report-health-progress-bar {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 300ms ease;
+}
+
+.sg-report-health-score-desc {
+  font-size: 0.8125rem;
+  color: var(--color-text-secondary, #cbd5e1);
+  line-height: 1.4;
+  margin: 0;
+}
+
+.sg-report-health-info-card {
+  background: var(--color-surface-sunken, rgba(15, 23, 42, 0.3));
+  border: 1px solid var(--color-border-subtle, rgba(255, 255, 255, 0.04));
+  border-radius: var(--radius-md, 8px);
+  padding: 1rem 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.sg-report-health-info-header {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.sg-report-health-info-title {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--color-text-primary, #f8fafc);
+}
+
+.sg-report-health-info-text {
+  font-size: 0.8125rem;
+  color: var(--color-text-secondary, #cbd5e1);
+  line-height: 1.45;
+  margin: 0;
+}
+
+.sg-report-health-info-subtext {
+  font-size: 0.75rem;
+  color: var(--color-text-muted, #64748b);
+  line-height: 1.4;
+  margin: 0;
+}

@@ -242,7 +242,7 @@ def predict_faults(model, cols: list[str], network: pd.DataFrame, threshold: flo
     raw_nan_alert = network[["temperature_c", "pressure_hpa", "humidity_pct"]].isna().any(axis=1).values
     helper_columns = pd.DataFrame({
         "helper_probability": probability,
-        "helper_alert": (probability >= threshold) | raw_nan_alert,
+        "helper_alert": (probability >= threshold),
         "raw_nan_alert": raw_nan_alert,
     }, index=result.index)
     return pd.concat([result, helper_columns], axis=1)

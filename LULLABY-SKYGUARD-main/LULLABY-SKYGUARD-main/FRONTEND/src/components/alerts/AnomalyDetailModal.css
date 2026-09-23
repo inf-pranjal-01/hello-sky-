@@ -1,0 +1,115 @@
+.sg-anomaly-modal {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.sg-anomaly-modal__hero {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem 1.25rem;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--color-border-subtle, rgba(255, 255, 255, 0.08));
+  border-radius: var(--radius-md, 8px);
+}
+
+.sg-anomaly-modal__hero-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.sg-anomaly-modal__type {
+  font-size: 1.125rem;
+  font-weight: 700;
+  color: var(--color-text-primary, #f8fafc);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.sg-anomaly-modal__meta-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+  font-size: 0.8125rem;
+  color: var(--color-text-muted, #94a3b8);
+}
+
+.sg-anomaly-modal__meta-item {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+}
+
+.sg-anomaly-modal__hero-badges {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.sg-anomaly-modal__score {
+  font-family: var(--font-mono, monospace);
+  font-size: 1rem;
+  font-weight: 700;
+  padding: 0.35rem 0.75rem;
+  border-radius: var(--radius-sm, 6px);
+  background: rgba(239, 68, 68, 0.15);
+  color: var(--color-status-critical, #ef4444);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+.sg-anomaly-modal__section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.sg-anomaly-modal__section-title {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-text-muted, #94a3b8);
+  margin: 0;
+}
+
+.sg-anomaly-modal__root-cause {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--color-accent-cyan, #38bdf8);
+  padding: 0.75rem 1rem;
+  background: rgba(56, 189, 248, 0.05);
+  border-left: 3px solid var(--color-accent-cyan, #38bdf8);
+  border-radius: 0 var(--radius-sm, 4px) var(--radius-sm, 4px) 0;
+  margin: 0;
+}
+
+.sg-anomaly-modal__description {
+  font-size: 0.875rem;
+  color: var(--color-text-secondary, #cbd5e1);
+  line-height: 1.6;
+  margin: 0;
+  padding: 0.75rem 1rem;
+  background: rgba(255, 255, 255, 0.02);
+  border-radius: var(--radius-sm, 6px);
+  border: 1px solid var(--color-border-subtle, rgba(255, 255, 255, 0.06));
+}
+
+.sg-anomaly-modal__footer-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+}
+
+.sg-anomaly-modal__copied-toast {
+  font-size: 0.8125rem;
+  color: var(--color-status-optimal, #10b981);
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+}

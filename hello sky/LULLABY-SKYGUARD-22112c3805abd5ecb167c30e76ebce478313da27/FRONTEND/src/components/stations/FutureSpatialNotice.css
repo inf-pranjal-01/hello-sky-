@@ -1,0 +1,54 @@
+.sg-future-spatial-card {
+  padding: 1rem 1.25rem;
+  background: rgba(15, 23, 42, 0.4);
+  border: 1px solid var(--color-border-subtle, rgba(255, 255, 255, 0.08));
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-top: 0.5rem;
+}
+
+.sg-future-spatial__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.sg-future-spatial__title-group {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.sg-future-spatial__title {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--color-text-primary, #f8fafc);
+  margin: 0;
+}
+
+.sg-future-spatial__badge {
+  font-size: 0.6875rem;
+  font-family: var(--font-mono, monospace);
+  color: var(--color-text-muted, #64748b);
+  opacity: 0.8;
+}
+
+.sg-future-spatial__content {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+}
+
+.sg-future-spatial__text {
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  color: var(--color-text-secondary, #94a3b8);
+  margin: 0;
+}
+
+.sg-future-spatial__text strong {
+  color: var(--color-text-primary, #f8fafc);
+}

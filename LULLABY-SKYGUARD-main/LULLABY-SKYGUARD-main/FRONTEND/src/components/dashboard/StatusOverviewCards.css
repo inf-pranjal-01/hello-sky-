@@ -1,0 +1,158 @@
+.sg-status-overview-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 1.25rem;
+  min-height: 160px;
+  justify-content: space-between;
+  transition: transform var(--transition-fast), border-color var(--transition-fast);
+}
+
+.sg-status-overview-card:hover {
+  border-color: var(--border-bright);
+}
+
+.sg-status-overview-card__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.sg-status-overview-card__title {
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.sg-status-overview-card__body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.sg-status-overview-card__number-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.sg-status-overview-card__badges {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.3rem;
+}
+
+.sg-model-badge {
+  font-size: 0.65rem;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  padding: 2px 6px;
+  border-radius: var(--radius-sm, 4px);
+  white-space: nowrap;
+  line-height: 1;
+}
+
+.sg-model-badge--available {
+  background-color: var(--status-optimal-bg, rgba(16, 185, 129, 0.12));
+  color: var(--status-optimal-text, #10b981);
+  border: 1px solid var(--status-optimal-border, rgba(16, 185, 129, 0.3));
+}
+
+.sg-model-badge--unavailable {
+  background-color: var(--status-warning-bg, rgba(245, 158, 11, 0.12));
+  color: var(--status-warning-text, #f59e0b);
+  border: 1px solid var(--status-warning-border, rgba(245, 158, 11, 0.3));
+}
+
+.sg-status-overview-card__number {
+  font-size: 2.25rem;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  color: var(--text-primary);
+  line-height: 1;
+}
+
+.sg-status-overview-card__sub {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  line-height: 1.35;
+  min-height: 2rem;
+}
+
+.sg-score-meter {
+  width: 100%;
+  height: 4px;
+  background-color: var(--bg-darkest);
+  border-radius: 999px;
+  overflow: hidden;
+  margin-top: 0.25rem;
+}
+
+.sg-score-meter__fill {
+  height: 100%;
+  border-radius: 999px;
+  transition: width 0.3s ease;
+}
+
+.sg-score-meter__fill--low {
+  background-color: var(--status-optimal-text);
+}
+
+.sg-score-meter__fill--medium {
+  background-color: var(--status-warning-text);
+}
+
+.sg-score-meter__fill--high {
+  background-color: var(--status-degraded-text);
+}
+
+.sg-score-meter__fill--critical {
+  background-color: var(--status-critical-text);
+}
+
+.sg-score-meter__fill--health-healthy {
+  background-color: var(--status-optimal-text);
+}
+
+.sg-score-meter__fill--health-warning {
+  background-color: var(--status-warning-text);
+}
+
+.sg-score-meter__fill--health-critical {
+  background-color: var(--status-critical-text);
+}
+
+.sg-score-meter__fill--health-offline {
+  background-color: var(--text-muted);
+}
+
+.sg-status-overview-card--error {
+  border-color: rgba(225, 29, 72, 0.3);
+}
+
+.sg-status-overview-card__error-text {
+  font-size: 0.8rem;
+  color: var(--status-critical-text);
+  margin: 0.5rem 0;
+}
+
+.sg-status-overview-card__retry-btn {
+  align-self: flex-start;
+  font-size: 0.75rem;
+  padding: 0.25rem 0.5rem;
+  background: transparent;
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.sg-status-overview-card__retry-btn:hover {
+  background-color: var(--bg-surface-hover);
+  color: var(--text-primary);
+}

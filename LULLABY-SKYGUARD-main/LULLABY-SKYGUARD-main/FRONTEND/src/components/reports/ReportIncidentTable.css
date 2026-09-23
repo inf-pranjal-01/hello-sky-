@@ -1,0 +1,69 @@
+.sg-report-table-wrapper {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.sg-report-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8125rem;
+}
+
+.sg-report-table thead th {
+  text-align: left;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--color-text-muted, #94a3b8);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 0.6rem 0.75rem;
+  border-bottom: 1px solid var(--color-border-subtle, rgba(255, 255, 255, 0.08));
+  white-space: nowrap;
+}
+
+.sg-report-table tbody td {
+  padding: 0.65rem 0.75rem;
+  color: var(--color-text-secondary, #cbd5e1);
+  border-bottom: 1px solid var(--color-border-subtle, rgba(255, 255, 255, 0.04));
+  vertical-align: middle;
+}
+
+.sg-report-type-cell {
+  text-transform: capitalize;
+  font-weight: 500;
+  color: var(--color-text-primary, #f8fafc);
+  white-space: nowrap;
+}
+
+.sg-report-cause-cell {
+  font-size: 0.75rem;
+  color: var(--color-text-secondary, #94a3b8);
+  max-width: 320px;
+}
+
+.sg-report-table-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  background: rgba(56, 189, 248, 0.08);
+  border: 1px solid rgba(56, 189, 248, 0.2);
+  color: var(--color-accent-cyan, #38bdf8);
+  border-radius: var(--radius-sm, 6px);
+  padding: 3px 8px;
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition: all 120ms ease;
+  white-space: nowrap;
+}
+
+.sg-report-table-btn:hover {
+  background: rgba(56, 189, 248, 0.18);
+  color: #fff;
+}
+
+.sg-report-incidents-empty {
+  font-size: 0.8125rem;
+  color: var(--color-text-muted, #64748b);
+  padding: 1rem 0;
+  margin: 0;
+}

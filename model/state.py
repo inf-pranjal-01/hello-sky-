@@ -138,7 +138,8 @@ from pathlib import Path
 import pandas as pd
 
 sys.path.append(str(Path(__file__).parent.parent))
-from model.detect import score_reading, SensorHealthTracker, PARAMS
+from model.engine import DecisionEngine
+from model.detect import SensorHealthTracker, PARAMS
 from model.features import ROLLING_WINDOW_HOURS, DRIFT_LOOKBACK_HOURS
 from model.explain import ExplainerCache
 from config import RECOVERY_CLEAN_STREAK_REQUIRED
@@ -174,9 +175,14 @@ class StationBuffer:
         # ALSO being mid-recovery after an operator-initiated repair.
         self.recovery_active: bool = False
         self.recovery_clean_count: int = 0
+        self._cached_df = None
+        self._cache_dirty = True
 
     def raw_history_df(self) -> pd.DataFrame:
-        return pd.DataFrame(list(self._raw_rows))
+        if self._cache_dirty:
+            self._cached_df = pd.DataFrame(list(self._raw_rows))
+            self._cache_dirty = False
+        return self._cached_df
 
     def record_raw_reading(self, raw_reading: dict, timestamp, verdict: dict):
         """
@@ -227,6 +233,7 @@ class StationBuffer:
         replay that just ran."
         """
         self._raw_rows.clear()
+        self._cache_dirty = True
         self.health = SensorHealthTracker(self.station_id)
         self.recovery_active = False
         self.recovery_clean_count = 0
@@ -419,12 +426,12 @@ class StateManager:
                         nbuf_df = pd.concat([nbuf_df, pd.DataFrame([n_row])], ignore_index=True) if not nbuf_df.empty else pd.DataFrame([n_row])
             neighbor_buffers[nid] = nbuf_df
 
-        verdict = score_reading(
+        verdict = DecisionEngine.decide(
             raw_reading,
             history_df_with_current,
+            neighbor_buffers,
             self.artifact,
-            neighbor_buffers=neighbor_buffers,
-            explainer=self.explainer,
+            state=self.explainer,
         )
         # A spike can only be proved after the following reading
         # returns to baseline.  Count that confirmed, prior event for
@@ -458,6 +465,7 @@ class StateManager:
                 (row for row in buf._raw_rows if pd.Timestamp(row["timestamp"]) != spike["timestamp"]),
                 maxlen=RAW_HISTORY_MAXLEN_HOURS,
             )
+            buf._cache_dirty = True
 
         buf.record_raw_reading(raw_reading, timestamp, verdict)
 

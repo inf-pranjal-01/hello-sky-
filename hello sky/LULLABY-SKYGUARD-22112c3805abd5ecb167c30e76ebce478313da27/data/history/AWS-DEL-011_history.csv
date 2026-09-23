@@ -1,0 +1,13 @@
+timestamp,station_id,temperature_c,pressure_hpa,humidity_pct,is_anomaly,fault_type,severity,anomaly_score_pct,decision_basis,suggested_temperature_c,suggested_pressure_hpa,suggested_humidity_pct,health_status,source,model_confidence_pct,rule_confidence_pct
+2026-09-20T10:15:00+00:00,AWS-DEL-011,33.9,986.6,43.0,False,,low,0.0,,33.0,986.4,49.0,HEALTHY,live,,0.0
+2026-09-20T10:28:41.655203+00:00,AWS-DEL-011,33.9,986.6,43.0,False,,low,0.0,,33.0,986.4,49.0,HEALTHY,live,,0.0
+2026-09-20T10:31:20.083763+00:00,AWS-DEL-011,33.9,986.5,43.0,False,,low,0.0,,33.0,986.3,49.0,HEALTHY,live,,0.0
+2026-09-20T10:45:00+00:00,AWS-DEL-011,33.8,986.4,44.0,False,,low,0.0,,32.9,986.3,49.0,HEALTHY,live,,0.0
+2025-03-31T23:00:00+00:00,AWS-DEL-011,25.0,985.4,20.0,False,,low,0.0,,24.3,986.7,20.0,HEALTHY,live,,0.0
+2026-09-20T13:30:00+00:00,AWS-DEL-011,29.8,987.2,66.0,False,multivariate_inconsistency,low,45.0,,29.4,987.0,70.0,HEALTHY,live,,45.0
+2026-09-20T13:45:00+00:00,AWS-DEL-011,29.8,987.3,66.0,False,,low,0.0,,29.2,987.1,72.0,HEALTHY,live,,0.0
+2026-09-20T14:13:53.424674+00:00,AWS-DEL-011,29.7,987.5,66.0,False,,low,0.0,,28.9,987.2,73.0,HEALTHY,live,,0.0
+2026-09-20T14:15:00+00:00,AWS-DEL-011,29.7,987.7,67.0,False,multivariate_inconsistency,low,45.0,,28.8,987.4,75.0,HEALTHY,live,,45.0
+2026-09-20T14:00:00+00:00,AWS-DEL-011,29.7,987.5,66.0,False,,low,0.0,,28.9,987.2,73.0,HEALTHY,live,,0.0
+2026-09-20T14:45:00+00:00,AWS-DEL-011,29.5,988.2,67.0,False,,low,0.0,,28.4,987.9,77.0,HEALTHY,live,,0.0
+2026-09-20T15:15:00+00:00,AWS-DEL-011,29.4,988.6,68.0,False,,low,0.0,,28.1,988.1,79.0,HEALTHY,live,,0.0

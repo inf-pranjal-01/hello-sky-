@@ -1,0 +1,90 @@
+.sg-health-page {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  width: 100%;
+}
+
+.sg-health-page__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1.25rem;
+  padding-bottom: 0.85rem;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.sg-health-page__title-area {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  flex: 1;
+}
+
+.sg-health-page__title-row {
+  display: inline-flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: nowrap;
+}
+
+.sg-health-page__title-row svg {
+  flex-shrink: 0;
+  color: var(--accent-cyan, #38bdf8);
+}
+
+.sg-health-page__title {
+  font-size: 1.55rem;
+  font-weight: 700;
+  color: var(--color-text-primary, #f8fafc);
+  margin: 0;
+  line-height: 1.25;
+  white-space: nowrap;
+}
+
+.sg-health-page__subtitle {
+  font-size: 0.85rem;
+  color: var(--color-text-secondary, #94a3b8);
+  margin: 0.15rem 0 0 0;
+  line-height: 1.45;
+  max-width: 850px;
+}
+
+.sg-health-page__header-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  flex-shrink: 0;
+  margin-top: 0.25rem;
+}
+
+.sg-health-page__station-badge {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.35rem 0.75rem;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--color-border-subtle, rgba(255, 255, 255, 0.08));
+  border-radius: var(--radius-sm, 6px);
+  font-size: 0.8125rem;
+  color: var(--color-text-primary, #f8fafc);
+  font-family: var(--font-mono, monospace);
+}
+
+@media (max-width: 900px) {
+  .sg-health-page__header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .sg-health-page__title {
+    white-space: normal;
+  }
+
+  .sg-health-page__header-controls {
+    width: 100%;
+    justify-content: flex-start;
+  }
+}

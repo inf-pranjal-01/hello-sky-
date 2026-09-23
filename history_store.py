@@ -23,7 +23,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-DATA_DIR = Path(__file__).parent / "data" / "history"
+DATA_DIR = Path(__file__).parent / "runtime" / "history"
 MAX_HISTORY_DAYS = 90
 TRIM_CHECK_INTERVAL = 200
 

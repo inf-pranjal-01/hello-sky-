@@ -1,0 +1,51 @@
+.sg-suggested {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.sg-suggested--compact {
+  gap: 0.25rem;
+}
+
+.sg-suggested__heading {
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #7dd3fc;
+}
+
+.sg-suggested__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.sg-suggested__chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.35rem;
+  padding: 0.2rem 0.5rem;
+  border-radius: 999px;
+  background: rgba(56, 189, 248, 0.12);
+  border: 1px solid rgba(56, 189, 248, 0.35);
+  color: #e2e8f0;
+  font-size: 0.75rem;
+}
+
+.sg-suggested__label {
+  color: #94a3b8;
+  font-weight: 600;
+}
+
+.sg-suggested__value {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-weight: 700;
+  color: #7dd3fc;
+}
+
+.sg-suggested--empty {
+  color: #94a3b8;
+  font-size: 0.75rem;
+}

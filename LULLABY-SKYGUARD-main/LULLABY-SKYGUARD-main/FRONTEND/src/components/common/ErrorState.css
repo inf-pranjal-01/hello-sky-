@@ -1,0 +1,39 @@
+.sg-error-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 2.5rem 1.5rem;
+  border: 1px solid var(--status-critical-border);
+  border-radius: var(--radius-md);
+  background-color: var(--status-critical-bg);
+  width: 100%;
+}
+
+.sg-error-state--offline {
+  border-color: var(--status-warning-border);
+  background-color: var(--status-warning-bg);
+}
+
+.sg-error-state__icon {
+  color: var(--status-critical-text);
+  margin-bottom: 0.75rem;
+}
+
+.sg-error-state--offline .sg-error-state__icon {
+  color: var(--status-warning-text);
+}
+
+.sg-error-state__title {
+  font-size: 1.1rem;
+  color: var(--text-primary);
+  margin-bottom: 0.35rem;
+}
+
+.sg-error-state__message {
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+  max-width: 480px;
+  margin-bottom: 1.25rem;
+}

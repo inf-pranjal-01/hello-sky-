@@ -1,0 +1,95 @@
+def add_temporal_features(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Per-station rolling deviation + rate-of-change. Assumes df is
+    ALREADY one station, sorted by timestamp (see build_feature_matrix,
+    which does this via groupby before calling in).
+
+    If an `is_anomaly` ground-truth column is present (i.e. this is a
+    _labeled.csv being scored for Phase 3 evaluation), known-anomalous
+    rows are excluded from the rolling baseline -- see _rolling_baseline.
+    In live serving (detect.py), the equivalent exclusion uses the
+    model's OWN prior verdicts instead of ground truth, since the
+    future obviously isn't known yet -- that's implemented in state.py's
+    history buffer, not here.
+
+    IMPORTANT for evaluation callers: this exclusion makes an ongoing
+    fault's OWN rows use a PRE-fault baseline for their entire
+    duration, since the fault's own rows never enter their own rolling
+    window. Evaluation code must strip is_anomaly/fault_type before
+    calling build_feature_matrix. See the module-level CALLER CONTRACT
+    note and evaluate.py's docstring.
+
+    Also computes {prefix}_normalized_roc_1h here, NOT in
+    add_rule_only_signals -- it needs {prefix}_rolling_std, which only
+    exists at this point in the pipeline. It reuses that SAME causal,
+    shifted rolling std that {prefix}_deviation is built from, rather
+    than a second independent rolling-std computation. This is CUSUM's
+    "normalized_change" input (§2) in detect.py. One source of truth for
+    "how big is this station's normal step size right now" instead of
+    a second derivation that could quietly drift apart from the first.
+
+    NOTE: add_cross_parameter_features (below) does NOT consume this --
+    it's a direct instant-to-instant vapor-pressure check, not a
+    z-scored step size. An earlier revision of this docstring claimed
+    otherwise before that function existed at all; correcting it here
+    rather than leaving a stale claim about a function this file didn't
+    yet implement.
+    """
+    # Live and replay readings can mix naive provider timestamps with
+    # timezone-aware simulator timestamps; normalize both to UTC before
+    # sorting and using time-based rolling windows.
+    df["timestamp"] = pd.to_datetime(df["timestamp"], utc=True)
+    df = df.sort_values("timestamp").set_index("timestamp", drop=False)
+    exclude_mask = df["is_anomaly"].fillna(False).astype(bool) if "is_anomaly" in df.columns else None
+
+    for col, prefix in [("temperature_c", "temp"), ("pressure_hpa", "pressure"), ("humidity_pct", "humidity")]:
+        # Providers and replay dropout records legitimately contain a null
+        # measurement.  Pandas keeps a mixed float/None column as ``object``;
+        # ``Series.diff`` then attempts ``None - float`` and used to crash the
+        # entire simulator tick.  Coerce only this feature-engineering copy:
+        # the original raw value remains intact for dropout detection,
+        # telemetry/history display, and suggested-value generation.
+        values = pd.to_numeric(df[col], errors="coerce")
+        df[col] = values
+        mean, std, mad = _rolling_baseline(values, exclude_mask)
+        # Robust scale = 1.4826 * MAD
+        robust_scale = 1.4826 * mad
+        safe_scale = robust_scale.replace(0, np.nan)
+        df[f"{prefix}_deviation"] = (values - mean) / safe_scale
+        clean_values = values.mask(exclude_mask) if exclude_mask is not None else values
+        
+        df[f"{prefix}_rolling_std"] = std
+        df[f"{prefix}_rolling_mad"] = mad
+        df[f"{prefix}_robust_scale"] = robust_scale
+        df[f"{prefix}_rolling_mean"] = mean
+        df[f"{prefix}_rolling_mean_3h"] = values.shift(1).rolling("3h", min_periods=1).mean()
+        df[f"{prefix}_rolling_mean_24h"] = clean_values.shift(1).rolling("24h", min_periods=6).mean()
+        
+        # Missing data & Regularity
+        df["dt_hours"] = df.index.to_series().diff().dt.total_seconds() / 3600.0
+        valid_times = df.index.to_series()[values.notna()]
+        last_valid = valid_times.reindex(df.index, method='ffill')
+        df[f"{prefix}_hours_since_valid"] = (df.index.to_series() - last_valid).dt.total_seconds() / 3600.0
+        
+        # Ranges
+        for w in ["1h", "3h", "6h", "24h"]:
+            df[f"{prefix}_range_{w}"] = values.rolling(w, min_periods=1).max() - values.rolling(w, min_periods=1).min()
+            
+        long_baseline = std.rolling("720h", min_periods=ROLLING_MIN_PERIODS).median()
+        long_spread = std.rolling("720h", min_periods=ROLLING_MIN_PERIODS).std()
+        df[f"{prefix}_volatility_z"] = (std - long_baseline) / long_spread.replace(0, np.nan)
+        
+        df[f"{prefix}_roc_1h"] = values.diff(ROC_SHORT_HOURS)
+        df[f"{prefix}_roc_3h"] = values.diff(ROC_LONG_HOURS)
+        
+        # Robust slopes
+        df[f"{prefix}_slope_6h"] = (values - values.shift(6)) / 6.0
+        df[f"{prefix}_slope_24h"] = (values - values.shift(24)) / 24.0
+        
+        # Same-hour residual
+        df[f"{prefix}_same_hour_res"] = values - values.shift(24)
+        
+        df[f"{prefix}_normalized_roc_1h"] = df[f"{prefix}_roc_1h"] / safe_scale
+
+    df["warm_up_complete"] = df["temp_rolling_std"].notna()
+    return df.reset_index(drop=True)

@@ -107,6 +107,15 @@ def load_clean_training_data():
 
 def train():
     df = load_clean_training_data()
+
+    # True Temporal Split (P0/Phase 3): Ensure we don't mix future and past data randomly.
+    # Train only on the first 70% of the dataset chronologically.
+    df = df.sort_values("timestamp")
+    cutoff_idx = int(len(df) * 0.7)
+    cutoff_date = df.iloc[cutoff_idx]["timestamp"]
+    print(f"Temporal Split: Training on data before {cutoff_date}")
+    df = df[df["timestamp"] < cutoff_date]
+
     print(f"Loaded {len(df)} raw rows across {df['station_id'].nunique()} stations.\n")
 
     # SIGNATURE CHANGE (§9, features.py): single-arg now -- metadata was

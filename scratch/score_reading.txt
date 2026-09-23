@@ -1,0 +1,242 @@
+def score_reading(raw_reading: dict, history_df: pd.DataFrame, artifact: dict,
+                  neighbor_buffers: dict = None, explainer=None) -> dict:
+    """
+    Main entry point: scores ONE new reading given its station's recent
+    causal history buffer. Returns the verdict dict state.py/main.py
+    consume.
+
+    Spatial inputs are intentionally absent: Draft 2 removes them from
+    both serving and the model vector.
+    """
+    feature_row = build_features_for_latest(history_df)
+    # ── Time-aware suggested value interpolation ──────────────────────
+    # The old approach used a flat 48h rolling mean, which produced noon
+    # suggestions of ~23°C when the real noon reading should be ~32°C
+    # (because the 48h window includes overnight lows).
+    #
+    # Priority cascade (first valid wins):
+    #   1. Same-hour-yesterday: reading from ≈24h ago (captures diurnal cycle)
+    #   2. Trend-extrapolated 3h mean: short-window mean + slope correction
+    #   3. Neighbor station interpolation: time-aligned peer reading
+    #   4. 48h rolling mean (original fallback)
+    #   5. Most recent prior clean observation
+    suggested_values = {}
+    suggested_metadata = {}
+
+    # Pre-parse history timestamps for same-hour lookup
+    _hist_ts = pd.to_datetime(history_df["timestamp"], utc=True, errors="coerce")
+    _current_ts = _hist_ts.iloc[-1] if not _hist_ts.empty else None
+    _clean_history = history_df.iloc[:-1]  # exclude the current (possibly anomalous) reading
+
+    for param, prefix in PARAM_PREFIXES.items():
+        candidate = None
+        source = None
+        uncertainty = feature_row.get(f"{prefix}_rolling_std")
+
+        # ── Strategy 1: Spatial Neighbor Interpolation (Real-Time Regional Weather) ─
+        # For an active cluster, neighbor stations experience the same microclimate
+        # at the exact same hour. The peer median is the gold standard for imputing
+        # what this station should have observed under true atmospheric conditions.
+        if candidate is None and neighbor_buffers:
+            peer_vals_for_param = []
+            for _nid, _nbuf_df in (neighbor_buffers or {}).items():
+                if _nbuf_df is None or _nbuf_df.empty or param not in _nbuf_df.columns:
+                    continue
+                if _current_ts is not None and "timestamp" in _nbuf_df.columns:
+                    n_ts = pd.to_datetime(_nbuf_df["timestamp"], utc=True, errors="coerce")
+                    n_vals = pd.to_numeric(_nbuf_df[param], errors="coerce")
+                    n_valid = n_vals.notna() & n_ts.notna()
+                    if n_valid.any():
+                        n_diffs = (n_ts[n_valid] - _current_ts).abs()
+                        n_best = n_diffs.idxmin()
+                        if n_diffs.loc[n_best] <= pd.Timedelta(hours=2):
+                            nv = n_vals.loc[n_best]
+                            if pd.notna(nv):
+                                peer_vals_for_param.append(float(nv))
+            if peer_vals_for_param:
+                import numpy as np
+                candidate = float(np.median(peer_vals_for_param))
+                source = "neighbor_interpolation"
+
+        # ── Strategy 2: Same-hour-yesterday (Diurnal Temporal Match) ─
+        # Find a clean reading from ~24h ago (±2h tolerance).
+        # This naturally matches diurnal temperature/humidity curves when
+        # network peer consensus is unavailable.
+        if candidate is None and _current_ts is not None and pd.notna(_current_ts) and len(_clean_history) > 0:
+            target_24h = _current_ts - pd.Timedelta(hours=24)
+            clean_ts = pd.to_datetime(_clean_history["timestamp"], utc=True, errors="coerce")
+            clean_vals = pd.to_numeric(_clean_history[param], errors="coerce")
+            valid_mask = clean_vals.notna() & clean_ts.notna()
+            if valid_mask.any():
+                diffs_24h = (clean_ts[valid_mask] - target_24h).abs()
+                best_idx = diffs_24h.idxmin()
+                if diffs_24h.loc[best_idx] <= pd.Timedelta(hours=2):
+                    val_24h = clean_vals.loc[best_idx]
+                    if pd.notna(val_24h):
+                        candidate = float(val_24h)
+                        source = "same_hour_yesterday"
+
+        # ── Strategy 3: Forward Trend Extrapolation from Last Clean Reading ─
+        # Project forward from the last clean observation using the recent rate of change,
+        # rather than taking an unweighted backward rolling mean that drags into morning lows.
+        if candidate is None:
+            clean_series = pd.to_numeric(history_df[param].iloc[:-1], errors="coerce").dropna()
+            if not clean_series.empty:
+                last_clean_val = float(clean_series.iloc[-1])
+                slope_6h = feature_row.get(f"{prefix}_slope_6h")
+                roc_1h = feature_row.get(f"{prefix}_roc_1h")
+                
+                # Use recent 1h or 6h rate of change to extrapolate forward
+                step = 0.0
+                if pd.notna(roc_1h) and abs(roc_1h) < 10.0:
+                    step = float(roc_1h)
+                elif pd.notna(slope_6h) and abs(slope_6h) < 10.0:
+                    step = float(slope_6h)
+                
+                candidate = last_clean_val + step
+                source = "trend_extrapolated"
+
+        # ── Strategy 4: 48h rolling mean (original baseline fallback) ─
+        if candidate is None:
+            rm = feature_row.get(f"{prefix}_rolling_mean")
+            if pd.notna(rm):
+                candidate = float(rm)
+                source = "rolling_mean_48h"
+
+        # ── Strategy 5: Most recent prior clean observation ──────────
+        if candidate is None:
+            prior = pd.to_numeric(history_df[param].iloc[:-1], errors="coerce").dropna()
+            if not prior.empty:
+                candidate = float(prior.iloc[-1])
+                source = "prior_reading"
+                uncertainty = None
+
+        if candidate is not None:
+            suggested_values[param] = round(float(candidate), 2)
+            suggested_metadata[param] = {
+                "value": round(float(candidate), 2),
+                "source": source,
+                "uncertainty": round(float(uncertainty), 2) if pd.notna(uncertainty) else None
+            }
+
+    model_pct, model_status = _model_score_to_pct(raw_reading, feature_row, artifact, history_df)
+        # Build the full featurized buffer ONCE for this reading
+    featured_buffer = _featurize_buffer(history_df)
+    rules = _rule_checks(raw_reading, feature_row, history_df, featured_buffer, artifact)
+
+    # Frozen-specific model gate: frozen_value fires at confidence=80 (below
+    # RULE_CONFIDENCE_BYPASS=90) and goes through fusion. When model_pct is
+    # below FROZEN_MIN_MODEL_CORROBORATION, real stable-weather streaks and
+    # actual frozen sensors are indistinguishable -- suppress frozen evidence
+    # so it cannot drive an anomaly verdict without model corroboration.
+    fired = rules["fired"]
+    
+    from config import FROZEN_MIN_MODEL_CORROBORATION, DRIFT_MIN_MODEL_CORROBORATION, PHYSICAL_BOUNDS
+    if model_pct is None or model_pct < FROZEN_MIN_MODEL_CORROBORATION:
+        fired = [r for r in fired if r["type"] != "frozen_value"]
+    if model_pct is None or model_pct < DRIFT_MIN_MODEL_CORROBORATION:
+        fired = [r for r in fired if r["type"] != "drift"]
+
+    # ── DIURNAL SPATIAL CONSENSUS FILTER (Spike rules only) ──────────
+    # Before fusion, check if peer stations show the same direction of
+    # change. Morning solar heating, pressure fronts, and humidity swings
+    # affect all cluster stations simultaneously. If ≥60% of eligible peers
+    # agree on direction, the spike is likely environmental → dampen its
+    # confidence contribution to fusion. The ML model retains full authority.
+    diurnal_suppression_map = {}
+    has_spike = any(r["type"] == "spike" for r in fired)
+    if has_spike and neighbor_buffers:
+        fired, diurnal_suppression_map = _apply_diurnal_consensus_filter(
+            fired, neighbor_buffers, feature_row
+        )
+
+    # PRE-FUSION NETWORK CORROBORATION
+    network_state = None
+    network_interpretation = None
+    eligible_peer_count = None
+    corroborating_peer_count = None
+    
+    if fired:
+        specific_evidence = [r for r in fired if r["type"] not in ("physical_bounds", "dropout", "network_helper")]
+        primary_rule = max(specific_evidence, key=lambda e: e["confidence"]) if specific_evidence else max(fired, key=lambda e: e["confidence"])
+        pre_fusion_fault = primary_rule["type"]
+        implicated = list(set(r["parameter"] for r in fired))
+        
+        if pre_fusion_fault in ["frozen_value", "drift", "spike", "multivariate_inconsistency"]:
+            neighbor_buffers_safe = neighbor_buffers or {}
+            neighbor_features_safe = {}
+            for nid, n_df in neighbor_buffers_safe.items():
+                if n_df is not None and not n_df.empty:
+                    try:
+                        neighbor_features_safe[nid] = build_features_for_latest(n_df)
+                    except Exception:
+                        pass
+            
+            network_details = _corroborate_network(
+                raw_reading, history_df, neighbor_buffers_safe, neighbor_features_safe, feature_row, pre_fusion_fault, implicated, artifact=artifact
+            )
+            network_state = network_details["state"]
+            network_interpretation = network_details["network_interpretation"]
+            eligible_peer_count = network_details["eligible_peer_count"]
+            corroborating_peer_count = network_details["corroborating_peer_count"]
+            
+            if network_details["veto"]:
+                fired = [r for r in fired if r["type"] not in ["frozen_value", "drift", "spike", "multivariate_inconsistency"]]
+            else:
+                bonus = network_details.get("confidence_bonus", 0.0)
+                dampen = network_details.get("dampen_factor", 1.0)
+                relabel = network_details.get("relabel_fault_type")
+                
+                for r in fired:
+                    if r["type"] == pre_fusion_fault:
+                        if bonus > 0:
+                            r["confidence"] = min(95.0, r["confidence"] + bonus) if r["type"] == "drift" else min(89.5 if r["confidence"] < 90 else 100.0, r["confidence"] + bonus)
+                        if dampen < 1.0:
+                            r["confidence"] = round(r["confidence"] * dampen, 1)
+                        if relabel:
+                            r["type"] = relabel
+
+    score_pct, is_anomaly, fault_type, rule_confidence, decision_basis = _fuse_and_score(model_pct, fired)
+    severity = score_to_severity(score_pct)
+
+    # fault_helper removed
+
+    shap_features_public, likely_sensors = [], []
+    explanation_method = None
+    if is_anomaly and explainer is not None:
+        try:
+            explain_result = explainer.explain(feature_row)
+            explanation_method = explain_result.get("method")
+            shap_features = explain_result.get("features", [])
+            likely_sensors = likely_faulty_params(shap_features)
+            shap_features_public = [{"name": f["name"], "impact": f["impact"]} for f in shap_features]
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning(f"[detect] explanation failed for this reading, returning verdict without it: {e!r}")
+
+    regime = _classify_regime(feature_row, raw_reading, history_df)
+
+    return {
+        "anomaly_score_pct": round(score_pct, 1),
+        "model_confidence_pct": round(model_pct, 1) if model_pct is not None else None,
+        "model_status": model_status,
+        "rule_confidence_pct": round(rule_confidence, 1),
+        "is_anomaly": bool(is_anomaly),
+        "severity": severity,
+        "fault_type": fault_type,
+        "decision_basis": decision_basis,
+        "rules_fired": fired,
+        "fast_path_offline_params": rules["fast_path_offline_params"],
+        "confirmed_spikes": rules["confirmed_spikes"],
+        "suggested_values": suggested_values,
+        "suggested_metadata": suggested_metadata,
+        "shap_features": shap_features_public,
+        "explanation_method": explanation_method,
+        "likely_faulty_sensors": likely_sensors,
+        "regime": regime,
+        "network_corroboration": network_state,
+        "network_interpretation": network_interpretation,
+        "eligible_peer_count": eligible_peer_count,
+        "corroborating_peer_count": corroborating_peer_count,
+        "diurnal_suppression": diurnal_suppression_map if diurnal_suppression_map else None,
+    }

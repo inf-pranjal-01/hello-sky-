@@ -1,0 +1,109 @@
+.sg-analytics-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: var(--spacing-md, 1rem);
+  margin-bottom: 1.5rem;
+}
+
+.sg-analytics-kpi-card {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 1.125rem 1.25rem;
+  min-height: 110px;
+  position: relative;
+  overflow: hidden;
+  transition: transform var(--transition-normal, 200ms ease), border-color var(--transition-normal, 200ms ease);
+}
+
+.sg-analytics-kpi-card:hover {
+  transform: translateY(-2px);
+  border-color: rgba(56, 189, 248, 0.3);
+}
+
+.sg-analytics-kpi-card__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.sg-analytics-kpi-card__label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-text-muted, #94a3b8);
+}
+
+.sg-analytics-kpi-card__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-sm, 6px);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--color-accent-cyan, #38bdf8);
+}
+
+.sg-analytics-kpi-card__icon--critical {
+  color: var(--color-status-critical, #ef4444);
+  background: rgba(239, 68, 68, 0.1);
+}
+
+.sg-analytics-kpi-card__icon--warning {
+  color: var(--color-status-warning, #f59e0b);
+  background: rgba(245, 158, 11, 0.1);
+}
+
+.sg-analytics-kpi-card__icon--optimal {
+  color: var(--color-status-optimal, #10b981);
+  background: rgba(16, 185, 129, 0.1);
+}
+
+.sg-analytics-kpi-card__body {
+  margin-top: 0.75rem;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.sg-analytics-kpi-card__value {
+  font-size: 1.5rem;
+  font-weight: 700;
+  font-family: var(--font-mono, monospace);
+  color: var(--color-text-primary, #f8fafc);
+  line-height: 1.2;
+}
+
+.sg-analytics-kpi-card__unit {
+  font-size: 0.8125rem;
+  color: var(--color-text-muted, #94a3b8);
+  margin-left: 0.25rem;
+}
+
+.sg-analytics-kpi-card__subtext {
+  font-size: 0.8125rem;
+  color: var(--color-text-secondary, #cbd5e1);
+  font-family: var(--font-mono, monospace);
+}
+
+@media (max-width: 1400px) {
+  .sg-analytics-kpi-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+@media (max-width: 900px) {
+  .sg-analytics-kpi-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 600px) {
+  .sg-analytics-kpi-grid {
+    grid-template-columns: 1fr;
+  }
+}

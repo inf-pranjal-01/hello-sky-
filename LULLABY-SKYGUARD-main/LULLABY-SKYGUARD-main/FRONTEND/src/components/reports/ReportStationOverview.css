@@ -1,0 +1,117 @@
+.sg-report-section {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding: 1.25rem 1.5rem;
+  background: var(--color-surface-card, rgba(15, 23, 42, 0.7));
+  border: 1px solid var(--color-border-subtle, rgba(255, 255, 255, 0.08));
+  border-radius: var(--radius-lg, 12px);
+  margin-bottom: 1.5rem;
+}
+
+.sg-report-section__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  border-bottom: 1px solid var(--color-border-subtle, rgba(255, 255, 255, 0.08));
+  padding-bottom: 0.5rem;
+}
+
+.sg-report-section__title-group {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.sg-report-section__title {
+  font-size: 1.125rem;
+  font-weight: 700;
+  color: var(--color-text-primary, #f8fafc);
+  margin: 0;
+  letter-spacing: -0.01em;
+}
+
+.sg-report-section__badge {
+  font-size: 0.6875rem;
+  font-family: var(--font-mono, monospace);
+  color: var(--color-text-muted, #64748b);
+  opacity: 0.8;
+}
+
+.sg-report-subheading {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-text-muted, #94a3b8);
+  margin: 0 0 0.75rem;
+}
+
+.sg-report-station-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 1.25rem;
+}
+
+.sg-report-station-card {
+  background: var(--color-surface-sunken, rgba(15, 23, 42, 0.4));
+  border: 1px solid var(--color-border-subtle, rgba(255, 255, 255, 0.05));
+  border-radius: var(--radius-md, 8px);
+  padding: 1rem 1.25rem;
+  display: flex;
+  flex-direction: column;
+}
+
+.sg-report-meta-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.sg-report-meta-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.8125rem;
+  padding-bottom: 0.35rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+}
+
+.sg-report-meta-key {
+  color: var(--color-text-muted, #94a3b8);
+}
+
+.sg-report-meta-val {
+  color: var(--color-text-primary, #f8fafc);
+}
+
+/* Status Pills List */
+.sg-report-status-pills {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.sg-report-status-pill-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--color-border-subtle, rgba(255, 255, 255, 0.04));
+  border-radius: var(--radius-sm, 6px);
+  padding: 0.5rem 0.75rem;
+}
+
+.sg-report-status-pill-info {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.sg-report-status-pill-label {
+  font-size: 0.8125rem;
+  color: var(--color-text-secondary, #cbd5e1);
+  font-weight: 500;
+}

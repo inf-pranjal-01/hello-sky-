@@ -1,0 +1,2 @@
+dataset,hours_evaluated,real_hardware_dropouts,dropouts_caught,dropout_recall_pct,alpine_subzero_hours_below_10c,temp_min_c,temp_max_c
+NOAA_USCRN_CO_Boulder_14_W,8784,5,5,100.0,568,-29.5,25.3

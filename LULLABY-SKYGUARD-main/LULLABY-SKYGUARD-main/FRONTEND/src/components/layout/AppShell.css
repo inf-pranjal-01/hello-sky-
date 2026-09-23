@@ -1,0 +1,20 @@
+.sg-shell {
+  display: flex;
+  min-height: 100vh;
+  background-color: var(--bg-darkest);
+  width: 100%;
+}
+
+.sg-shell__main-wrapper {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0; /* Prevents overflow in flex child */
+}
+
+.sg-shell__content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  outline: none;
+}

@@ -1,0 +1,50 @@
+.sg-dropdown-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.sg-dropdown-label {
+  font-size: 0.825rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.sg-dropdown-wrapper {
+  position: relative;
+  display: inline-block;
+  width: 100%;
+}
+
+.sg-dropdown-select {
+  width: 100%;
+  padding: 0.5rem 2rem 0.5rem 0.75rem;
+  background-color: var(--bg-surface);
+  color: var(--text-primary);
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-sm);
+  font-size: 0.9rem;
+  font-family: var(--font-sans);
+  appearance: none;
+  cursor: pointer;
+  transition: border-color var(--transition-fast);
+}
+
+.sg-dropdown-select:hover:not(:disabled) {
+  border-color: var(--accent-blue);
+}
+
+.sg-dropdown-select:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.sg-dropdown-arrow {
+  position: absolute;
+  right: 0.75rem;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 0.65rem;
+  color: var(--text-muted);
+  pointer-events: none;
+}

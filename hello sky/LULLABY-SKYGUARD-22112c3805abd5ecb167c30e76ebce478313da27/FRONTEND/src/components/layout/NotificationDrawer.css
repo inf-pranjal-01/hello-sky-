@@ -1,0 +1,127 @@
+﻿/* ================================================================ */
+/* NotificationDrawer.css                                           */
+/* ================================================================ */
+
+/* --- Backdrop --- */
+.sg-drawer-backdrop {
+  position: fixed; inset: 0; background-color: rgba(0,0,0,0);
+  z-index: 1100; pointer-events: none;
+  transition: background-color var(--transition-normal);
+}
+.sg-drawer-backdrop--visible {
+  background-color: rgba(0,0,0,0.45); pointer-events: all;
+}
+
+/* --- Drawer Panel --- */
+.sg-notification-drawer {
+  position: fixed; top: 0; right: 0; bottom: 0;
+  width: 380px; max-width: 100vw;
+  background-color: var(--bg-surface);
+  border-left: 1px solid var(--border-medium);
+  box-shadow: -4px 0 24px rgba(0,0,0,0.3);
+  z-index: 1200;
+  display: flex; flex-direction: column;
+  transform: translateX(100%);
+  transition: transform 0.25s cubic-bezier(0.4,0,0.2,1);
+  overflow: hidden;
+}
+.sg-notification-drawer--open { transform: translateX(0); }
+
+/* --- Header --- */
+.sg-notification-drawer__header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid var(--border-subtle);
+  background-color: var(--bg-elevated); flex-shrink: 0;
+}
+.sg-notification-drawer__title {
+  display: flex; align-items: center; gap: 0.5rem;
+  color: var(--text-primary);
+}
+.sg-notification-drawer__title h2 { font-size: 1rem; font-weight: 600; margin: 0; }
+
+.sg-unread-badge {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 1.25rem; height: 1.25rem; padding: 0 0.25rem;
+  font-size: 0.7rem; font-weight: 700;
+  background-color: var(--status-critical-bg);
+  color: var(--status-critical-text);
+  border-radius: 999px;
+}
+
+.sg-drawer-close-btn {
+  display: flex; align-items: center; justify-content: center;
+  width: 2rem; height: 2rem;
+  background: transparent; border: none; cursor: pointer;
+  color: var(--text-secondary); border-radius: var(--radius-sm);
+  transition: background-color var(--transition-fast), color var(--transition-fast);
+}
+.sg-drawer-close-btn:hover { background-color: var(--bg-surface-hover); color: var(--text-primary); }
+.sg-drawer-close-btn:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 2px; }
+
+/* --- Body (scroll area) --- */
+.sg-notification-drawer__body {
+  flex: 1; overflow-y: auto; padding: 0.75rem 1rem;
+  display: flex; flex-direction: column; gap: 0.5rem;
+}
+
+/* --- Notice tag --- */
+.sg-backend-notice {
+  font-size: 0.725rem; color: var(--text-muted);
+  margin: 0 0 0.5rem;
+}
+.sg-notice-tag {
+  font-size: 0.675rem; font-weight: 700; color: var(--accent-cyan);
+  background-color: rgba(6,182,212,0.08); padding: 0.2rem 0.4rem; border-radius: 4px;
+}
+
+/* --- Individual notification items --- */
+.sg-notification-item {
+  display: flex; align-items: flex-start; gap: 0.75rem;
+  padding: 0.75rem; border-radius: var(--radius-md);
+  border: 1px solid var(--border-subtle); position: relative;
+  background-color: var(--bg-card);
+  transition: background-color var(--transition-fast);
+}
+.sg-notification-item--read { opacity: 0.65; }
+.sg-notification-item--alert { border-left: 3px solid var(--status-critical-text); }
+.sg-notification-item--warning { border-left: 3px solid var(--status-warning-text); }
+.sg-notification-item--success { border-left: 3px solid var(--status-optimal-text); }
+.sg-notification-item--info { border-left: 3px solid var(--accent-cyan); }
+
+.sg-notification-icon {
+  flex-shrink: 0; width: 1.75rem; height: 1.75rem;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: var(--radius-sm);
+}
+.sg-notification-icon--alert { color: var(--status-critical-text); background-color: var(--status-critical-bg); }
+.sg-notification-icon--warning { color: var(--status-warning-text); background-color: var(--status-warning-bg); }
+.sg-notification-icon--success { color: var(--status-optimal-text); background-color: var(--status-optimal-bg); }
+.sg-notification-icon--info { color: var(--accent-cyan); background-color: rgba(6,182,212,0.1); }
+
+.sg-notification-content { flex: 1; min-width: 0; }
+.sg-notification-title { font-size: 0.8rem; font-weight: 600; color: var(--text-primary); margin: 0 0 0.2rem; }
+.sg-notification-body { font-size: 0.75rem; color: var(--text-secondary); margin: 0 0 0.35rem; line-height: 1.4; }
+.sg-notification-time { font-size: 0.7rem; color: var(--text-muted); font-family: var(--font-mono); }
+
+.sg-unread-dot {
+  position: absolute; top: 0.6rem; right: 0.6rem;
+  width: 0.45rem; height: 0.45rem; border-radius: 50%;
+  background-color: var(--accent-primary);
+}
+
+/* --- Footer --- */
+.sg-notification-drawer__footer {
+  padding: 0.75rem 1rem;
+  border-top: 1px solid var(--border-subtle);
+  background-color: var(--bg-elevated); flex-shrink: 0;
+}
+.sg-mark-all-btn {
+  width: 100%; padding: 0.5rem; font-size: 0.8rem; cursor: pointer;
+  background: transparent; border: 1px solid var(--border-medium);
+  color: var(--text-secondary); border-radius: var(--radius-sm);
+  transition: background-color var(--transition-fast);
+}
+.sg-mark-all-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.sg-mark-all-btn:not(:disabled):hover { background-color: var(--bg-surface-hover); }
+.sg-mark-all-btn:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 2px; }

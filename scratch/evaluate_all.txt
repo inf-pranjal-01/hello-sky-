@@ -1,0 +1,250 @@
+def evaluate_all(labeled_files: list, artifact: dict) -> dict:
+    frames = []
+    for path in labeled_files:
+        d = pd.read_csv(path, parse_dates=["timestamp"])
+        if "is_anomaly" not in d.columns:
+            raise ValueError(f"{path.name} has no is_anomaly column -- is this actually a _labeled.csv?")
+        d["__source_file"] = path.name
+        frames.append(d)
+    df_full = pd.concat(frames, ignore_index=True)
+    df_full["timestamp"] = pd.to_datetime(df_full["timestamp"]).dt.tz_localize(None)
+    df_full = add_frozen_channel_labels_from_reference(df_full)
+
+    has_fault_type = "fault_type" in df_full.columns
+    label_cols = ["station_id", "timestamp", "is_anomaly", "__source_file"] + (["fault_type"] if has_fault_type else [])
+    labels = df_full[label_cols].copy()
+    labels["is_anomaly"] = labels["is_anomaly"].fillna(False).astype(bool)
+    labels["fault_type"] = labels["fault_type"].fillna("none") if has_fault_type else "none"
+
+    df = df_full.drop(columns=["is_anomaly", "fault_type", "__source_file"], errors="ignore")
+
+    # PASS 1: no exclusion. A real fault's own extreme values sit inside
+    # every recovery reading's rolling window for up to ROLLING_WINDOW_HOURS
+    # after the fault ends, inflating those clean rows' model score.
+    featured_p1, _ = _featurize(df)
+    model_pct_p1 = vectorized_model_scores(featured_p1, artifact)
+    hard_p1 = pd.Series(False, index=featured_p1.index)
+    for col, (low, high) in PHYSICAL_BOUNDS.items():
+        hard_p1 |= (featured_p1[col] < low) | (featured_p1[col] > high) | featured_p1[col].isna()
+    predicted_p1 = hard_p1.to_numpy() | (model_pct_p1 >= PASS1_MASK_MODEL_THRESHOLD)
+
+    # PASS 2: exclude Pass 1 detections from baseline windows.
+    featured_p1_keys = featured_p1[["station_id", "timestamp"]].assign(__pass1_flag=predicted_p1)
+    df["timestamp"] = pd.to_datetime(df["timestamp"]).dt.tz_localize(None)
+    featured_p1_keys["timestamp"] = pd.to_datetime(featured_p1_keys["timestamp"]).dt.tz_localize(None)
+    
+    df_pass2 = df.merge(
+        featured_p1_keys,
+        on=["station_id", "timestamp"], how="left",
+    )
+    df_pass2["__pass1_flag"] = df_pass2["__pass1_flag"].fillna(False)
+    featured, n_dropped_total = _featurize(df_pass2, mask_col="__pass1_flag")
+
+    print(f"\n(Two-pass eval -- pass 1 flagged {int(predicted_p1.sum())} rows for baseline "
+          f"exclusion; pass 2 re-featurizes around them. Rule engine + reported numbers "
+          f"below are computed once, on PASS 2's features.)")
+
+    featured, row_hard, row_rule_conf, row_fault_type, per_sensor_log, recovery_log = run_rule_engine_and_health(featured, artifact)
+    
+    # Stage 3 & 4 Spatial Corroboration across cluster peers
+    row_rule_conf, row_fault_type = apply_spatial_corroboration(
+        featured, row_hard, row_rule_conf, row_fault_type, artifact
+    )
+
+        # Network-aware supervised helper -------------------------------------------------
+    helper_path = ARTIFACTS_PATH.parent / "fault_helper.pkl"
+    if helper_path.exists():
+        print(f"\n(Loading cached fault_helper artifact from {helper_path}...)")
+        helper_artifact = joblib.load(helper_path)
+        if isinstance(helper_artifact, dict):
+            helper_model = helper_artifact.get("helper_model")
+            helper_columns = helper_artifact.get("helper_columns")
+            frozen_helpers = helper_artifact.get("frozen_helpers", {})
+        else:
+            helper_model, helper_columns = helper_artifact[:2]
+            frozen_helpers = helper_artifact[2] if len(helper_artifact) > 2 else {}
+    else:
+        print(f"\n(Fitting network fault_helper across sparse replays with seeds {HELPER_TRAINING_SEEDS}...)")
+        helper_held_out_stations = set(labels.loc[labels["is_anomaly"], "station_id"])
+        helper_training = make_sparse_training_replays(helper_held_out_stations, HELPER_TRAINING_SEEDS)
+        helper_model, helper_columns = fit_fault_helper(helper_training)
+        frozen_helpers = fit_frozen_channel_helpers(helper_training)
+        joblib.dump({
+            "helper_model": helper_model,
+            "helper_columns": helper_columns,
+            "frozen_helpers": frozen_helpers,
+        }, helper_path)
+        print(f"(Cached trained fault helper models to {helper_path})")
+
+    helper_scored = predict_faults(helper_model, helper_columns, df_full, HELPER_ALERT_THRESHOLD)
+    helper_scored = score_frozen_channels(
+        helper_scored, frozen_helpers, FROZEN_HELPER_ALERT_THRESHOLD,
+    )
+    
+    featured["timestamp"] = pd.to_datetime(featured["timestamp"]).dt.tz_localize(None)
+    helper_scored["timestamp"] = pd.to_datetime(helper_scored["timestamp"]).dt.tz_localize(None)
+
+    helper_prob_lookup = helper_scored.set_index(["station_id", "timestamp"])["helper_probability"]
+    helper_prob = pd.MultiIndex.from_frame(featured[["station_id", "timestamp"]]).map(helper_prob_lookup).fillna(0.0).to_numpy(dtype=float)
+    
+    frozen_prob_lookup = helper_scored.set_index(["station_id", "timestamp"])["frozen_helper_probability"] if "frozen_helper_probability" in helper_scored.columns else helper_scored.set_index(["station_id", "timestamp"])["frozen_helper_alert"].astype(float)
+    frozen_prob = pd.MultiIndex.from_frame(featured[["station_id", "timestamp"]]).map(frozen_prob_lookup).fillna(0.0).to_numpy(dtype=float)
+
+    # Bounded confidence contribution inside the fusion logic!
+    # Max 40.0 confidence, only if above alert threshold, so it acts as a small nudge (16 points in fusion).
+    fh_conf = np.where(helper_prob >= HELPER_ALERT_THRESHOLD, np.minimum(40.0, helper_prob * 50.0), 0.0)
+    helper_wins = (fh_conf > row_rule_conf) & (fh_conf > 0.0)
+    row_rule_conf = np.maximum(row_rule_conf, fh_conf)
+    
+    
+    frz_conf = np.where(frozen_prob >= FROZEN_HELPER_ALERT_THRESHOLD, np.minimum(40.0, frozen_prob * 50.0), 0.0)
+    frz_wins = (frz_conf > row_rule_conf) & (frz_conf > 0.0)
+    row_rule_conf = np.maximum(row_rule_conf, frz_conf)
+    row_fault_type = np.where(frz_wins, "frozen_value", row_fault_type)
+    
+
+    model_pct = vectorized_model_scores(featured, artifact)
+
+    # Apply higher model weighting specifically for multivariate inconsistency
+    m_weight = np.where(row_fault_type == "multivariate_inconsistency", 0.85, MODEL_WEIGHT)
+    r_weight = np.where(row_fault_type == "multivariate_inconsistency", 0.15, RULE_WEIGHT)
+
+    overall_confidence = (
+        m_weight * model_pct
+        + r_weight * row_rule_conf
+    )
+
+    predicted = (
+        row_hard
+        | ((overall_confidence > FUSION_ANOMALY_THRESHOLD) & (row_rule_conf > 0))
+        | (model_pct > MODEL_ALONE_OVERRIDE_THRESHOLD)
+        # Keep frozen floor-match (90) in evidence fusion rather than
+        # promoting it to a hard verdict; see detect.py's matching
+        # Draft 2 §1 safeguard.
+        | (row_rule_conf > RULE_CONFIDENCE_BYPASS)
+    )
+
+    # Frozen-specific model gate (Pass 6). frozen_value confidence=80 (below
+    # RULE_CONFIDENCE_BYPASS=90) so it goes through fusion. Clean stable-weather
+    # outlier rows score model_pct 60-94 and can slip past fusion. Suppress
+    # predictions where frozen is the SOLE evidence and model_pct is below
+    # FROZEN_MIN_MODEL_CORROBORATION=65. Rows with drift(85) or stronger rules
+    # are unaffected since their row_rule_conf > 80.
+    frozen_only = row_rule_conf == RULE_BASE_CONFIDENCE['frozen_value']
+    predicted = predicted & ~(frozen_only & (model_pct < FROZEN_MIN_MODEL_CORROBORATION))
+
+    featured = featured.merge(labels, on=["station_id", "timestamp"], how="left")
+    featured["is_anomaly"] = featured["is_anomaly"].fillna(False).astype(bool)
+    featured["fault_type"] = featured["fault_type"].fillna("none")
+    featured["__source_file"] = featured["__source_file"].fillna("unknown")
+    featured["__predicted"] = predicted
+    featured["__model_pct"] = model_pct
+    featured["__rule_confidence_pct"] = row_rule_conf
+    featured["__score_pct"] = overall_confidence
+
+    pred_ft = pd.Series("none", index=featured.index, dtype="object")
+    has_rule_ft = (row_fault_type != None) & (row_fault_type != "none")
+    pred_ft.loc[has_rule_ft] = row_fault_type[has_rule_ft]
+
+    pred_ft.loc[(model_pct > MODEL_ALONE_OVERRIDE_THRESHOLD) & (pred_ft == "none")] = "unstructured_anomaly"
+    pred_ft.loc[~predicted] = "none"
+    featured["__predicted_fault_type"] = pred_ft
+
+    _print_evidence_audit(featured)
+
+    if not per_sensor_log.empty:
+        per_sensor_log.to_csv(PER_SENSOR_LOG_PATH, index=False)
+        print(f"\n[Artifact] Per-station/per-sensor fault log ({len(per_sensor_log)} flagged readings) saved -> {PER_SENSOR_LOG_PATH}")
+        if "--verbose" in sys.argv:
+            print(per_sensor_log.groupby(["station_id", "parameter", "fault_type"]).size()
+                  .rename("count").reset_index().to_string(index=False))
+    else:
+        print("\nNo readings were flagged by the rule engine -- per-sensor log is empty.")
+
+    print(f"\n--- AUTO-RECOVERY DIAGNOSTIC (§10) ---")
+    if not recovery_log.empty:
+        recovery_log.to_csv(RECOVERY_LOG_PATH, index=False)
+        stuck = recovery_log[recovery_log["recovered_at"].isna()]
+        recovered = recovery_log[~recovery_log["recovered_at"].isna()]
+        print(f"{len(recovered)} OFFLINE episode(s) recovered within the run "
+              f"(mean duration {recovered['duration_hours'].mean():.1f}h)." if len(recovered) else
+              "No OFFLINE episodes recovered within the run.")
+        if len(stuck):
+            print(f"{len(stuck)} sensor(s) STILL OFFLINE at end of run:")
+            print(stuck[["station_id", "parameter", "offline_since"]].to_string(index=False))
+        print(f"[Artifact] Full recovery log saved -> {RECOVERY_LOG_PATH}")
+    else:
+        print("No OFFLINE episodes occurred during this run.")
+
+    results = {"__overall__": _score_and_report(featured, "ALL FILES COMBINED", n_dropped_total, silent=False)}
+
+    station_records = []
+    verbose = "--verbose" in sys.argv or "--all-stations" in sys.argv
+
+    for source_file, group in featured.groupby("__source_file"):
+        n_in_file = int((df_full["__source_file"] == source_file).sum())
+        n_dropped_file = n_in_file - len(group)
+        file_metrics = _score_and_report(
+            group.reset_index(drop=True), source_file, n_dropped_file, silent=not verbose
+        )
+        results[source_file] = file_metrics
+        station_id = group["station_id"].iloc[0] if "station_id" in group.columns else source_file.replace("_labeled.csv", "")
+        station_records.append({
+            "source_file": source_file,
+            "station_id": station_id,
+            "total_rows": len(group),
+            "true_anomalies": int(group["is_anomaly"].sum()),
+            "predicted_anomalies": int(group["__predicted"].sum()),
+            "precision": file_metrics["precision"],
+            "recall": file_metrics["recall"],
+            "f1": file_metrics["f1"],
+            "tp": file_metrics["tp"],
+            "fp": file_metrics["fp"],
+            "fn": file_metrics["fn"],
+            "tn": file_metrics["tn"],
+        })
+
+    station_df = pd.DataFrame(station_records)
+    station_breakdown_path = DATA_DIR / "eval_station_breakdown.csv"
+    station_df.to_csv(station_breakdown_path, index=False)
+
+    # 7-Cluster Regional Summary
+    print("\n" + "=" * 90)
+    print("REGIONAL MICROCLIMATE CLUSTER SUMMARY (7 REGIONS)")
+    print("=" * 90)
+    print(f"  {'Cluster':<10} {'Region / Climate Description':<30} {'Stations':<10} {'True Faults':<13} {'Alerts Sent':<13} {'Precision':<11} {'Recall':<10} {'F1':<8}")
+    print("  " + "-" * 88)
+    
+    cluster_meta = {
+        "CHN": "Chennai (Coastal Humid)",
+        "DEL": "Delhi (Inland Semi-Arid)",
+        "MUM": "Mumbai (Coastal Tropical)",
+        "KOL": "Kolkata (Gangetic Delta)",
+        "BHO": "Bhopal (Central Plateau)",
+        "VAR": "Varanasi (Indo-Gangetic Plain)",
+        "RAN": "Ranchi (Chota Nagpur Plateau)",
+    }
+    
+    station_df["cluster"] = station_df["station_id"].str.extract(r'AWS-([A-Z]+)-')[0].fillna("OTHER")
+    for cluster_code, c_group in station_df.groupby("cluster"):
+        c_name = cluster_meta.get(cluster_code, f"{cluster_code} Region")
+        c_stations = len(c_group)
+        c_true = int(c_group["true_anomalies"].sum())
+        c_pred = int(c_group["predicted_anomalies"].sum())
+        c_tp = int(c_group["tp"].sum())
+        c_fp = int(c_group["fp"].sum())
+        c_fn = int(c_group["fn"].sum())
+        c_prec = c_tp / (c_tp + c_fp) if (c_tp + c_fp) > 0 else (1.0 if c_pred == 0 else 0.0)
+        c_rec = c_tp / (c_tp + c_fn) if (c_tp + c_fn) > 0 else (1.0 if c_true == 0 else 0.0)
+        c_f1 = 2 * c_prec * c_rec / (c_prec + c_rec) if (c_prec + c_rec) > 0 else (1.0 if c_true == 0 and c_pred == 0 else 0.0)
+        
+        prec_str = f"{c_prec:.1%}" if c_pred > 0 else ("100.0%" if c_true == 0 else "N/A")
+        rec_str = f"{c_rec:.1%}" if c_true > 0 else "100.0%"
+        f1_str = f"{c_f1:.3f}" if (c_true > 0 or c_pred > 0) else "1.000"
+        print(f"  {cluster_code:<10} {c_name:<30} {c_stations:<10} {c_true:<13} {c_pred:<13} {prec_str:<11} {rec_str:<10} {f1_str:<8}")
+    print("=" * 90)
+    print(f"[Artifact] Detailed 28-station breakdown saved -> {station_breakdown_path}")
+    if not verbose:
+        print("           (Pass '--verbose' flag to print individual station confusion matrices to terminal)\n")
+
+    return results

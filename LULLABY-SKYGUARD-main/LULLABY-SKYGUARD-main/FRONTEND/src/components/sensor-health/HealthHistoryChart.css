@@ -1,0 +1,189 @@
+.sg-health-history-card {
+  padding: 1.5rem;
+  margin-bottom: 1.5rem;
+  position: relative;
+}
+
+.sg-health-history__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin-bottom: 1.25rem;
+}
+
+.sg-health-history__title-area {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.sg-health-history__title-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.sg-health-history__title {
+  font-size: 1.125rem;
+  font-weight: 700;
+  color: var(--color-text-primary, #f8fafc);
+  margin: 0;
+}
+
+.sg-health-history__notice {
+  font-size: 0.6875rem;
+  font-family: var(--font-mono, monospace);
+  color: var(--color-text-muted, #94a3b8);
+  opacity: 0.8;
+}
+
+.sg-health-history__controls {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.sg-health-history__range-buttons {
+  display: flex;
+  background: rgba(255, 255, 255, 0.04);
+  padding: 3px;
+  border-radius: var(--radius-sm, 6px);
+  border: 1px solid var(--color-border-subtle, rgba(255, 255, 255, 0.08));
+}
+
+.sg-health-history__range-btn {
+  background: transparent;
+  border: none;
+  color: var(--color-text-muted, #94a3b8);
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 0.25rem 0.625rem;
+  border-radius: var(--radius-sm, 4px);
+  cursor: pointer;
+  transition: background 150ms ease, color 150ms ease;
+}
+
+.sg-health-history__range-btn--active {
+  background: var(--color-accent-cyan, #38bdf8);
+  color: #0b1120;
+}
+
+.sg-health-history__summary-text {
+  font-size: 0.8125rem;
+  color: var(--color-text-secondary, #cbd5e1);
+  margin: 0 0 1rem 0;
+  line-height: 1.5;
+  background: rgba(255, 255, 255, 0.02);
+  padding: 0.5rem 0.75rem;
+  border-radius: var(--radius-sm, 6px);
+  border-left: 3px solid var(--color-accent-cyan, #38bdf8);
+}
+
+/* SVG Chart Container */
+.sg-health-history__svg-container {
+  width: 100%;
+  height: 240px;
+  position: relative;
+}
+
+.sg-health-history__svg {
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.sg-health-history__grid-line {
+  stroke: rgba(255, 255, 255, 0.05);
+  stroke-dasharray: 4 4;
+}
+
+.sg-health-history__axis-label {
+  font-size: 10px;
+  font-family: var(--font-mono, monospace);
+  fill: var(--color-text-muted, #94a3b8);
+}
+
+.sg-health-history__line {
+  fill: none;
+  stroke: var(--color-status-optimal, #10b981);
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.sg-health-history__line--warning {
+  stroke: var(--color-status-warning, #f59e0b);
+}
+
+.sg-health-history__line--critical {
+  stroke: var(--color-status-critical, #ef4444);
+}
+
+.sg-health-history__area {
+  opacity: 0.25;
+}
+
+.sg-health-history__point {
+  fill: var(--color-bg-base, #0b1120);
+  stroke: var(--color-status-optimal, #10b981);
+  stroke-width: 2;
+  cursor: pointer;
+  transition: r 150ms ease, stroke-width 150ms ease;
+}
+
+.sg-health-history__point:hover {
+  r: 5;
+  stroke-width: 3;
+}
+
+/* Accessible Table Toggle */
+.sg-health-history__table-toggle {
+  margin-top: 1rem;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.sg-health-history__toggle-btn {
+  background: none;
+  border: none;
+  color: var(--color-accent-cyan, #38bdf8);
+  font-size: 0.75rem;
+  cursor: pointer;
+  padding: 0.25rem 0.5rem;
+  border-radius: var(--radius-sm, 4px);
+}
+
+.sg-health-history__toggle-btn:hover {
+  text-decoration: underline;
+}
+
+.sg-health-history__table-wrapper {
+  margin-top: 0.75rem;
+  max-height: 200px;
+  overflow-y: auto;
+  border: 1px solid var(--color-border-subtle, rgba(255, 255, 255, 0.08));
+  border-radius: var(--radius-sm, 6px);
+}
+
+.sg-health-history__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.75rem;
+  text-align: left;
+}
+
+.sg-health-history__table th {
+  background: rgba(255, 255, 255, 0.04);
+  padding: 0.5rem 0.75rem;
+  color: var(--color-text-muted, #94a3b8);
+  position: sticky;
+  top: 0;
+}
+
+.sg-health-history__table td {
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  color: var(--color-text-primary, #f8fafc);
+}

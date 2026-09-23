@@ -1,0 +1,62 @@
+def build_network_features(frame: pd.DataFrame) -> pd.DataFrame:
+    """Produce causal station and leave-one-out cluster features."""
+    required = ["station_id", "timestamp", "is_anomaly", "fault_type"]
+    if "__network" in frame:
+        required.append("__network")
+    required.extend([c for c in frame.columns if c.startswith("frozen_param_")])
+    labels = frame[required].copy()
+    raw = frame.drop(
+        columns=["is_anomaly", "fault_type", *[c for c in frame.columns if c.startswith("frozen_param_")]],
+        errors="ignore",
+    )
+    featured = build_feature_matrix(raw)
+    
+    featured["timestamp"] = pd.to_datetime(featured["timestamp"]).dt.tz_localize(None)
+    labels["timestamp"] = pd.to_datetime(labels["timestamp"]).dt.tz_localize(None)
+    
+    featured = featured.merge(labels, on=["station_id", "timestamp"], how="left")
+    featured["is_anomaly"] = featured["is_anomaly"].fillna(False).astype(bool)
+    featured["fault_type"] = featured["fault_type"].fillna("none")
+    if "__network" not in featured:
+        featured["__network"] = 0
+    featured["__base_station"] = featured["station_id"].str.replace(r"__n\d+$", "", regex=True)
+    meta = pd.read_csv(DATA_DIR / "stations_metadata.csv")[["station_id", "cluster_id"]]
+    featured = featured.merge(meta, left_on="__base_station", right_on="station_id", how="left", suffixes=("", "_meta"))
+    featured = featured.sort_values(["station_id", "timestamp"]).reset_index(drop=True)
+    featured = featured.copy()
+
+    for raw_col, prefix in zip(RAW_COLUMNS, PREFIXES):
+        featured[f"{prefix}_was_missing"] = featured[raw_col].isna().astype(float)
+        
+        by_station = featured.groupby("station_id", group_keys=False)[raw_col]
+        featured[f"{prefix}_range_6h"] = by_station.transform(
+            lambda s: s.rolling(6, min_periods=4).max() - s.rolling(6, min_periods=4).min()
+        )
+        
+        lookup = featured[["__network", "cluster_id", "timestamp", "station_id", raw_col]]
+        merged = featured[["__network", "cluster_id", "timestamp", "station_id"]].merge(
+            lookup, on=["__network", "cluster_id", "timestamp"], suffixes=("", "_peer")
+        )
+        merged = merged[merged["station_id"] != merged["station_id_peer"]]
+        res = merged.groupby(["__network", "cluster_id", "timestamp", "station_id"])[raw_col].median()
+        df_idx = featured.set_index(["__network", "cluster_id", "timestamp", "station_id"])
+        featured[f"{prefix}_peer_value"] = res.reindex(df_idx.index).values
+        
+        residual = featured[raw_col] - featured[f"{prefix}_peer_value"]
+        featured[f"{prefix}_peer_residual"] = residual
+        featured[f"{prefix}_peer_residual_6h_change"] = residual.groupby(featured["station_id"]).diff(6)
+        peer_by_station = featured.groupby("station_id", group_keys=False)[f"{prefix}_peer_value"]
+        featured[f"{prefix}_peer_range_6h"] = peer_by_station.transform(
+            lambda s: s.rolling(6, min_periods=4).max() - s.rolling(6, min_periods=4).min()
+        )
+        featured[f"{prefix}_activity_gap"] = featured[f"{prefix}_peer_range_6h"] - featured[f"{prefix}_range_6h"]
+        own_change = featured.groupby("station_id")[raw_col].diff()
+        peer_change = featured.groupby("station_id")[f"{prefix}_peer_value"].diff()
+        for lag in range(1, 7):
+            featured[f"{prefix}_peer_residual_lag_{lag}"] = residual.groupby(featured["station_id"]).shift(lag)
+            featured[f"{prefix}_own_change_lag_{lag}"] = own_change.groupby(featured["station_id"]).shift(lag - 1)
+            featured[f"{prefix}_peer_change_lag_{lag}"] = peer_change.groupby(featured["station_id"]).shift(lag - 1)
+
+    cols = feature_columns()
+    featured[cols] = featured[cols].replace([np.inf, -np.inf], np.nan).clip(-1e10, 1e10)
+    return featured

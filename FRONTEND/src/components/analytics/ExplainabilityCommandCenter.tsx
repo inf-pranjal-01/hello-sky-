@@ -250,7 +250,7 @@ export const ExplainabilityCommandCenter: React.FC<ExplainabilityCommandCenterPr
                   PRESSURE_SHIFT: 'Significant barometric pressure change — possible incoming weather front.',
                   HIGH_VOLATILITY: 'High variability conditions — detection thresholds may be less reliable.',
                   REGIME_TRANSITION: 'Environmental regime transition detected — false positives possible.',
-                  THERMODYNAMIC_CONFLICT: 'Physical inconsistency: Temperature and humidity violate Clausius-Clapeyron atmospheric limits.',
+                  THERMODYNAMIC_CONFLICT: 'Thermodynamic consistency violation: Temperature and humidity violate Clausius-Clapeyron atmospheric limits.',
                   UNKNOWN_INSUFFICIENT_DATA: 'Context unavailable — station still in warm-up period (insufficient history).',
                   UNKNOWN_CONTEXT_FAILURE: 'Context classification failed — check system logs.',
                 };

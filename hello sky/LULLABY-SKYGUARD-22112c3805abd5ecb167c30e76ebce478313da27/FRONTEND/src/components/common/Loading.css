@@ -1,0 +1,30 @@
+.sg-loading-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 2.5rem 1rem;
+  gap: 0.75rem;
+  width: 100%;
+}
+
+.sg-spinner {
+  border: 3px solid var(--border-subtle);
+  border-top-color: var(--accent-blue);
+  border-radius: 50%;
+  animation: spinnerRotate 0.8s linear infinite;
+}
+
+.sg-spinner--sm { width: 20px; height: 20px; border-width: 2px; }
+.sg-spinner--md { width: 36px; height: 36px; border-width: 3px; }
+.sg-spinner--lg { width: 52px; height: 52px; border-width: 4px; }
+
+.sg-loading-message {
+  color: var(--text-secondary);
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
+@keyframes spinnerRotate {
+  to { transform: rotate(360deg); }
+}

@@ -1,0 +1,242 @@
+.sg-health-hero {
+  padding: 1.75rem 2rem;
+  margin-bottom: 1.5rem;
+  position: relative;
+  overflow: hidden;
+  border-left: 4px solid var(--color-status-optimal, #10b981);
+  transition: border-color var(--transition-normal, 200ms ease);
+}
+
+.sg-health-hero--healthy {
+  border-left-color: var(--color-status-optimal, #10b981);
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.08) 0%, rgba(15, 23, 42, 0.7) 100%);
+}
+
+.sg-health-hero--warning {
+  border-left-color: var(--color-status-warning, #f59e0b);
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.08) 0%, rgba(15, 23, 42, 0.7) 100%);
+}
+
+.sg-health-hero--critical {
+  border-left-color: var(--color-status-critical, #ef4444);
+  background: linear-gradient(135deg, rgba(239, 68, 68, 0.08) 0%, rgba(15, 23, 42, 0.7) 100%);
+}
+
+.sg-health-hero--offline {
+  border-left-color: var(--color-text-muted, #94a3b8);
+  background: linear-gradient(135deg, rgba(148, 163, 184, 0.08) 0%, rgba(15, 23, 42, 0.7) 100%);
+}
+
+.sg-health-hero__container {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 2rem;
+}
+
+.sg-health-hero__main {
+  display: flex;
+  align-items: center;
+  gap: 2rem;
+  flex: 1;
+  min-width: 280px;
+}
+
+/* Circular Meter Arc */
+.sg-health-hero__meter {
+  position: relative;
+  width: 120px;
+  height: 120px;
+  flex-shrink: 0;
+}
+
+.sg-health-hero__svg {
+  transform: rotate(-90deg);
+  width: 100%;
+  height: 100%;
+}
+
+.sg-health-hero__track {
+  fill: none;
+  stroke: rgba(255, 255, 255, 0.08);
+  stroke-width: 8;
+}
+
+.sg-health-hero__indicator {
+  fill: none;
+  stroke-width: 8;
+  stroke-linecap: round;
+  transition: stroke-dashoffset 0.6s ease, stroke 0.3s ease;
+}
+
+.sg-health-hero__indicator--healthy {
+  stroke: var(--color-status-optimal, #10b981);
+}
+
+.sg-health-hero__indicator--warning {
+  stroke: var(--color-status-warning, #f59e0b);
+}
+
+.sg-health-hero__indicator--critical {
+  stroke: var(--color-status-critical, #ef4444);
+}
+
+.sg-health-hero__indicator--offline {
+  stroke: var(--color-text-muted, #94a3b8);
+}
+
+.sg-health-hero__meter-value {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+
+.sg-health-hero__score {
+  font-family: var(--font-mono, monospace);
+  font-size: 1.75rem;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--color-text-primary, #f8fafc);
+}
+
+.sg-health-hero__score-unit {
+  font-size: 0.75rem;
+  color: var(--color-text-muted, #94a3b8);
+  text-transform: uppercase;
+  margin-top: 2px;
+}
+
+/* Text & Description */
+.sg-health-hero__details {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.sg-health-hero__title-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.sg-health-hero__title {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--color-text-primary, #f8fafc);
+  margin: 0;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.sg-health-hero__description {
+  font-size: 0.9375rem;
+  color: var(--color-text-secondary, #cbd5e1);
+  line-height: 1.5;
+  margin: 0;
+  max-width: 600px;
+}
+
+.sg-health-hero__aside {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.5rem;
+  text-align: right;
+}
+
+.sg-health-hero__timestamp {
+  font-size: 0.8125rem;
+  font-family: var(--font-mono, monospace);
+  color: var(--color-text-muted, #94a3b8);
+}
+
+.sg-health-hero__notice {
+  font-size: 0.6875rem;
+  font-family: var(--font-mono, monospace);
+  color: var(--color-text-muted, #94a3b8);
+  opacity: 0.8;
+}
+
+/* Repair & Recovery Action Section */
+.sg-health-hero__repair-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+  margin-top: 0.75rem;
+}
+
+.sg-health-hero__repair-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.sg-health-hero__repair-hint {
+  margin: 0;
+  font-size: 0.75rem;
+  color: var(--color-text-muted, #94a3b8);
+}
+
+.sg-health-hero__recovery-notice {
+  background: rgba(245, 158, 11, 0.1);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  border-radius: var(--radius-md, 6px);
+  padding: 0.625rem 0.875rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+  max-width: 550px;
+}
+
+.sg-health-hero__recovery-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.8125rem;
+  color: var(--color-status-warning, #f59e0b);
+}
+
+.sg-health-hero__recovery-msg {
+  font-size: 0.8125rem;
+  color: var(--color-text-secondary, #cbd5e1);
+  margin: 0;
+  line-height: 1.4;
+}
+
+.sg-health-hero__repair-error {
+  font-size: 0.8125rem;
+  color: var(--color-status-critical, #ef4444);
+  margin: 0;
+}
+
+@media (max-width: 768px) {
+  .sg-health-hero {
+    padding: 1.25rem;
+  }
+
+  .sg-health-hero__container {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 1.25rem;
+  }
+
+  .sg-health-hero__main {
+    gap: 1.25rem;
+  }
+
+  .sg-health-hero__aside {
+    align-items: flex-start;
+    text-align: left;
+    width: 100%;
+    padding-top: 0.5rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
+  }
+}

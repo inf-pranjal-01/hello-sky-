@@ -1,0 +1,12 @@
+timestamp,station_id,temperature_c,pressure_hpa,humidity_pct,is_anomaly,fault_type,severity,anomaly_score_pct,decision_basis,suggested_temperature_c,suggested_pressure_hpa,suggested_humidity_pct,health_status,source,model_confidence_pct,rule_confidence_pct
+2026-09-20T10:15:00+00:00,AWS-VAR-103,31.5,998.1,68.0,False,,low,0.0,,31.7,998.8,72.0,HEALTHY,live,,0.0
+2026-09-20T10:28:41.655203+00:00,AWS-VAR-103,31.5,998.1,68.0,False,,low,0.0,,31.7,998.8,72.0,HEALTHY,live,,0.0
+2026-09-20T10:31:20.083763+00:00,AWS-VAR-103,31.5,998.2,69.0,False,,low,0.0,,31.1,999.1,75.0,HEALTHY,live,,0.0
+2026-09-20T10:45:00+00:00,AWS-VAR-103,31.5,998.4,70.0,False,,low,0.0,,30.4,999.4,79.0,HEALTHY,live,,0.0
+2025-03-31T23:00:00+00:00,AWS-VAR-103,25.6,997.7,21.0,False,,low,0.0,,24.3,998.7,24.0,HEALTHY,live,,0.0
+2026-09-20T13:30:00+00:00,AWS-VAR-103,29.2,1000.4,85.0,False,multivariate_inconsistency,low,45.0,,27.8,1001.5,93.0,HEALTHY,live,,45.0
+2026-09-20T13:45:00+00:00,AWS-VAR-103,29.0,1000.6,86.0,False,,low,0.0,,27.8,1001.7,92.0,HEALTHY,live,,0.0
+2026-09-20T14:13:53.424674+00:00,AWS-VAR-103,28.7,1000.8,86.0,False,,low,0.0,,27.7,1001.9,91.0,HEALTHY,live,,0.0
+2026-09-20T14:00:00+00:00,AWS-VAR-103,28.7,1000.8,86.0,False,,low,0.0,,27.7,1001.9,91.0,HEALTHY,live,,0.0
+2026-09-20T14:45:00+00:00,AWS-VAR-103,28.1,1001.5,88.0,False,,low,0.0,,27.3,1002.4,90.0,HEALTHY,live,,0.0
+2026-09-20T15:15:00+00:00,AWS-VAR-103,27.7,1001.8,89.0,False,,low,0.0,,27.2,1002.7,91.0,HEALTHY,live,,0.0
