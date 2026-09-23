@@ -213,7 +213,11 @@ def score_frozen_channels(scored: pd.DataFrame, helpers: dict, threshold: float)
     for prefix, (model, cols) in helpers.items():
         probability = model.predict_proba(result[cols])[:, 1]
         result[f"frozen_{prefix}_probability"] = probability
-        alerts |= probability >= threshold
+        channel_alert = probability >= threshold
+        if prefix == "temp" and "temp_activity_gap" in result.columns:
+            spatial_confirmed = (result["temp_activity_gap"] >= 0.6).fillna(False).to_numpy(dtype=bool)
+            channel_alert = channel_alert & spatial_confirmed
+        alerts |= channel_alert
     result["frozen_helper_alert"] = alerts
     return result
 
