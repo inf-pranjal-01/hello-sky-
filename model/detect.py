@@ -852,7 +852,22 @@ def _fuse_and_score(model_pct, rule_evidence: list):
     return overall, is_anomaly, fault_type, rule_confidence, decision_basis
 
 
-def _corroborate_network(raw_reading: dict, history_df: pd.DataFrame, neighbor_buffers: dict, fault_type: str, implicated_params: list, artifact: dict = None, precomputed_features: dict = None, precomputed_neighbors: dict = None) -> dict:
+def _corroborate_network(
+    raw_reading: dict,
+    history_df: pd.DataFrame,
+    neighbor_buffers: dict,
+    arg4=None,
+    arg5=None,
+    arg6=None,
+    arg7=None,
+    *,
+    fault_type: str = None,
+    implicated_params: list = None,
+    artifact: dict = None,
+    precomputed_features: dict = None,
+    precomputed_neighbors: dict = None,
+    **kwargs,
+) -> dict:
     """
     Network corroboration check (Stages 3 & 4).
     Empirically-calibrated against ERA5 cluster residuals (model_artifacts/network_corroboration.pkl).
@@ -863,6 +878,26 @@ def _corroborate_network(raw_reading: dict, history_df: pd.DataFrame, neighbor_b
     - NEVER touches hardware rail faults (physical_bounds, dropout, sensor_fail_low).
     - Only adjusts confidence and labeling for frozen_value and drift.
     """
+    # Normalize flexible signature (supports both legacy positional and modern keyword signatures)
+    if isinstance(arg4, str):
+        fault_type = arg4 if fault_type is None else fault_type
+        implicated_params = arg5 if (implicated_params is None and isinstance(arg5, list)) else implicated_params
+        artifact = arg6 if (artifact is None and isinstance(arg6, dict)) else artifact
+    elif isinstance(arg4, (dict, type(None))):
+        if precomputed_neighbors is None and isinstance(arg4, dict):
+            precomputed_neighbors = arg4
+        if precomputed_features is None and isinstance(arg5, (dict, pd.Series)):
+            precomputed_features = arg5
+        if fault_type is None and isinstance(arg6, str):
+            fault_type = arg6
+        if implicated_params is None and isinstance(arg7, list):
+            implicated_params = arg7
+
+    if fault_type is None:
+        fault_type = "drift"
+    if implicated_params is None:
+        implicated_params = ["temperature_c", "pressure_hpa", "humidity_pct"]
+
     if not neighbor_buffers:
         return {
             "state": "INSUFFICIENT_CORROBORATION",
@@ -1045,7 +1080,25 @@ def _corroborate_network(raw_reading: dict, history_df: pd.DataFrame, neighbor_b
                     diverged_peers += 1
                 elif peer_delta <= (div_thresh * 0.3):
                     flat_peers += 1
-            elif fault_type in ["drift", "spike", "multivariate_inconsistency"]:
+            elif fault_type == "drift":
+                target_roc = target_features.get(f"{prefix}_roc_1h", 0.0)
+                cur_hour = target_time.hour
+                t_exp = get_expected_roc(station_id, prefix, int(cur_hour))
+                p_exp = get_expected_roc(nid, prefix, int(cur_hour))
+                t_res = float(target_roc) - t_exp if pd.notna(target_roc) else float("nan")
+                p_res = float(peer_roc) - p_exp if pd.notna(peer_roc) else float("nan")
+
+                corroborated_by_roc = (
+                    pd.notna(t_res) and pd.notna(p_res)
+                    and abs(p_res) >= (div_thresh * 0.30)
+                    and (t_res * p_res > 0)
+                    and (abs(t_res) / max(abs(p_res), 0.1) <= 3.0)
+                    and (abs(p_res) / max(abs(t_res), 0.1) <= 3.0)
+                    and abs(t_res - p_res) <= (div_thresh * 2.0)
+                )
+                if corroborated_by_roc:
+                    corroborating_peers += 1
+            elif fault_type in ["spike", "multivariate_inconsistency"]:
                 dev_thresh = 4.0 if prefix == "temp" else (3.0 if prefix == "pressure" else 15.0)
                 corroborated_by_dev = (
                     pd.notna(target_dev) and pd.notna(peer_dev)
@@ -1085,47 +1138,21 @@ def _corroborate_network(raw_reading: dict, history_df: pd.DataFrame, neighbor_b
             state = "UNCORROBORATED_STABLE"
             interpretation = "No peers diverged. Assuming regional stability."
             veto = True
-    elif fault_type in ["drift", "spike", "multivariate_inconsistency"]:
-        if fault_type == "drift" and not history_df.empty and len(history_df) >= 24:
-            for param in implicated_params:
-                target_24h_delta = float(raw_reading.get(param, 0.0)) - float(history_df[param].iloc[-24])
-                peer_24h_delta = None
-                if neighbor_buffers:
-                    for nid, n_df in neighbor_buffers.items():
-                        if not n_df.empty and len(n_df) >= 24:
-                            peer_24h_delta = float(n_df[param].iloc[-1]) - float(n_df[param].iloc[-24])
-                            break
-                if pd.notna(target_24h_delta) and peer_24h_delta is not None:
-                    if abs(target_24h_delta - peer_24h_delta) <= 2.0 and abs(peer_24h_delta) >= 2.0:
-                        state = "REGIONAL_STABILITY"
-                        interpretation = "Cloudy day detected via 24h delta."
-                        veto = True
-                        relabel_fault_type = "none"
-
-        if not veto:
-            if eligible_peers < 1:
-                state = "INSUFFICIENT_CORROBORATION"
-                interpretation = "No eligible peers with fresh data."
-            elif corroborating_peers >= 2:
-                state = "REGIONAL"
-                interpretation = "Multiple peers move the same way; regional weather front."
-                veto = True
-                relabel_fault_type = "none"
-            else:
-                diverge_ratio = diverged_peers / eligible_peers if eligible_peers > 0 else 0.0
-                if diverge_ratio >= 0.5:
-                    state = "CONFIRMED_DIVERGENCE"
-                    interpretation = f"Sensor clearly diverging from {diverged_peers}/{eligible_peers} peers."
-                    confidence_bonus = 5.0
-                elif diverged_peers == 0:
-                    state = "REGIONAL_STABILITY"
-                    interpretation = "Cluster fully agrees with sensor; regional weather."
-                    veto = True
-                    relabel_fault_type = "none"
-                else:
-                    state = "AMBIGUOUS_DIVERGENCE"
-                    interpretation = f"Some peers diverge, some don't. Dampening confidence."
-                    dampen_factor = 0.5 + 0.5 * diverge_ratio
+    elif fault_type == "drift":
+        if eligible_peers < 1:
+            state = "INSUFFICIENT_CORROBORATION"
+            interpretation = "No eligible peers with fresh data."
+        elif corroborating_peers >= 2:
+            state = "REGIONAL"
+            interpretation = "Multiple peers move the same way; regional weather front."
+            veto = True
+            relabel_fault_type = "none"
+        else:
+            state = "LOCALIZED"
+            interpretation = "Peers show normal variability within bounds."
+    elif fault_type in ["spike", "multivariate_inconsistency"]:
+        state = "LOCALIZED"
+        interpretation = "Spike and multivariate inconsistency are evaluated independently."
 
     return {
         "state": state,

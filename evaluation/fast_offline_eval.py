@@ -730,7 +730,26 @@ def apply_spatial_corroboration(
                         diverged_peers += 1
                     elif peer_delta <= (div_thresh * 0.3):
                         flat_peers += 1
-                elif ft in ("drift", "spike", "multivariate_inconsistency"):
+                elif ft == "drift":
+                    # Validated pure normalized diurnal ROC residual corroboration (0.30 sigma)
+                    cur_hour = pd.Timestamp(cur_ts).hour
+                    t_exp = get_expected_roc(sid, prefix, int(cur_hour))
+                    p_exp = get_expected_roc(peer_id, prefix, int(cur_hour))
+                    t_res = t_roc - t_exp if pd.notna(t_roc) else float("nan")
+                    p_res = p_roc - p_exp if pd.notna(p_roc) else float("nan")
+
+                    corroborated_by_roc = (
+                        pd.notna(t_res) and pd.notna(p_res)
+                        and abs(p_res) >= (div_thresh * 0.30)
+                        and (t_res * p_res > 0)
+                        and (abs(t_res) / max(abs(p_res), 0.1) <= 3.0)
+                        and (abs(p_res) / max(abs(t_res), 0.1) <= 3.0)  # bidirectional
+                        and abs(t_res - p_res) <= (div_thresh * 2.0)
+                    )
+                    if corroborated_by_roc:
+                        corroborating_peers += 1
+                        break
+                elif ft in ("spike", "multivariate_inconsistency"):
                     dev_thresh = 4.0 if prefix == "temp" else (3.0 if prefix == "pressure" else 15.0)
                     corroborated_by_dev = (
                         pd.notna(t_dev) and pd.notna(p_dev)
@@ -739,31 +758,7 @@ def apply_spatial_corroboration(
                         and (abs(t_dev) / max(abs(p_dev), 0.1) <= 3.0)  # Ratio strictness
                         and abs(t_dev - p_dev) <= dev_thresh * 1.5      # Absolute strictness
                     )
-                    if gate_mode == "old":
-                        corroborated_by_roc = (
-                            pd.notna(t_roc) and pd.notna(p_roc)
-                            and abs(p_roc) >= (div_thresh * 0.5)
-                            and (t_roc * p_roc > 0)
-                            and (abs(t_roc) / max(abs(p_roc), 0.1) <= 3.0)
-                            and abs(t_roc - p_roc) <= div_thresh * 2.0
-                        )
-                    else:
-                        # Use diurnal residuals for corroboration, not instantaneous ROC
-                        cur_hour = pd.Timestamp(cur_ts).hour
-                        t_exp = get_expected_roc(sid, prefix, int(cur_hour))
-                        p_exp = get_expected_roc(peer_id, prefix, int(cur_hour))
-                        t_res = t_roc - t_exp if pd.notna(t_roc) else float("nan")
-                        p_res = p_roc - p_exp if pd.notna(p_roc) else float("nan")
-                        
-                        corroborated_by_roc = (
-                            pd.notna(t_res) and pd.notna(p_res)
-                            and abs(p_res) >= (div_thresh * 0.5)
-                            and (t_res * p_res > 0)
-                            and (abs(t_res) / max(abs(p_res), 0.1) <= 3.0)
-                            and (abs(p_res) / max(abs(t_res), 0.1) <= 3.0)  # bidirectional
-                            and abs(t_res - p_res) <= div_thresh * 2.0
-                        )
-                    if corroborated_by_dev or corroborated_by_roc:
+                    if corroborated_by_dev:
                         corroborating_peers += 1
                         break
 
