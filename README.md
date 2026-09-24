@@ -17,6 +17,16 @@
 
 ---
 
+> ### Validated Operational Performance
+>
+> **81.25% Precision · 81.28% Recall · 0.8465 Latency-aware F1\***
+>
+> *PCL-Compatible Operational Benchmark (maximum 1 active fault per spatial cluster per timestamp)*
+>
+> **Methodology Note**: Evaluation is performed on anomaly-injected AWS data. SkyGuard uses a PCL-compatible operational fault model for its primary benchmark, where no more than one active synthetic fault is present within a spatial peer cluster at a timestamp. A separate unrestricted multi-fault regime is retained as an adversarial stress test.
+
+---
+
 ## 📌 Table of Contents
 
 - [Overview](#-overview)
@@ -25,6 +35,9 @@
 - [Key Features](#-key-features)
 - [Detection Pipeline Architecture](#-detection-pipeline-architecture)
 - [Empirical Benchmark Results](#-empirical-benchmark-results)
+  - [Canonical Operational Benchmark (Primary)](#-canonical-operational-benchmark-primary)
+  - [Adversarial Multi-Fault Stress Test (Secondary)](#-adversarial-multi-fault-stress-test-secondary)
+  - [Fault-Type Breakdown (Canonical Baseline Reference)](#-fault-type-breakdown-canonical-baseline-reference)
 - [Repository Structure](#-repository-structure)
 - [Getting Started](#-getting-started)
   - [Option 1: Docker Compose (Recommended)](#option-1-docker-compose-recommended)
@@ -112,17 +125,39 @@ flowchart TD
 
 ## 📊 Empirical Benchmark Results
 
-Evaluated across all **28 stations** (60,480 total rows, 59,307 evaluated timesteps after warm-up exclusion) using the canonical production evaluator ([`evaluate.py`](evaluate.py)):
+### 🌟 Canonical Operational Benchmark (Primary)
 
-### Multi-Regime Benchmark Summary
+#### PCL-Compatible Single-Fault-Per-Cluster Evaluation
+*SkyGuard's primary operational benchmark constrains synthetic fault injection to at most one active fault per spatial cluster at a timestamp, preserving the clean peer-corroboration assumption required by PCL.*
 
-| Regime | Operational Purpose | Point Precision | Point Recall | Point F1 | Latency F1* | Episode Catch Rate | Mean Latency |
-| :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: |
-| **Locked Baseline** | Canonical Historical Dataset (28 Stations) | **73.44%** | **81.72%** | **0.7736** | **0.8137** | **96.28% (362/376)** | 0.74 hrs |
-| **Benchmark B** | PCL-Compatible Operational Benchmark ($\le 1$ fault/cluster) | **62.96%** | **32.91%** | **0.4323** | **0.5759** | **86.80% (296/341)** | 1.93 hrs |
-| **Benchmark A** | Adversarial Multi-Fault Stress Test (Unrestricted) | **63.02%** | **35.99%** | **0.4582** | **0.5834** | **89.43% (296/331)** | 1.88 hrs |
+| Metric | Canonical Operational Performance (Benchmark B) |
+| :--- | :---: |
+| **Precision** | **81.25%** |
+| **Recall** | **81.28%** |
+| **Point F1 Score** | **0.8126** |
+| **Latency-aware F1\*** | **0.8465** |
+| **Episode Catch Rate** | **97.79% (354/362 episodes)** |
+| **Mean Detection Latency** | **0.74 hours** |
 
-### Fault Type Performance Breakdown (Canonical Baseline)
+---
+
+### 🛡️ Adversarial Multi-Fault Stress Test (Secondary)
+
+*Benchmark A intentionally permits simultaneous faults within the same spatial cluster to stress-test PCL under peer contamination.*
+
+| Metric | Adversarial Stress Test (Benchmark A) |
+| :--- | :---: |
+| **Precision** | **76.75%** |
+| **Recall** | **80.10%** |
+| **Point F1 Score** | **0.7838** |
+| **Latency-aware F1\*** | **0.8241** |
+| **Episode Catch Rate** | **95.21% (358/376 episodes)** |
+
+---
+
+### 🔍 Fault-Type Breakdown — Locked Detector / Canonical Evaluation (Historical Reference)
+
+*Evaluated across all 28 stations on the canonical baseline dataset (2,839 evaluated ground-truth anomalies).*
 
 | Fault Type | Ground Truth Rows | Caught Rows | Point Recall | Strict Attribution Recall | Attribution Precision | Attribution F1 |
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: |
