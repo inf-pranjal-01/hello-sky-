@@ -561,7 +561,12 @@ FAULT_WEIGHTS = {
 MIN_EVENTS_PER_TYPE = 4
 
 
-def inject_anomalies(df: pd.DataFrame, seed: int = RANDOM_SEED) -> pd.DataFrame:
+def inject_anomalies(
+    df: pd.DataFrame,
+    seed: int = RANDOM_SEED,
+    cluster_claimed_spans: list = None,
+    return_spans: bool = False,
+) -> pd.DataFrame:
     """
     Walks through one station's dataframe and injects labeled faults
     at random locations across temperature/pressure/humidity columns.
@@ -577,6 +582,13 @@ def inject_anomalies(df: pd.DataFrame, seed: int = RANDOM_SEED) -> pd.DataFrame:
     elsewhere. Overlap is tracked per column, not globally, so
     independent faults on different parameters can legitimately share
     a timestamp (§1's frozen-pressure-while-temp-moves-normally case).
+
+    Cluster-concurrency constraint (PCL-Compatible Benchmark B):
+    When cluster_claimed_spans is supplied, candidate fault windows
+    are additionally pre-checked against any active fault windows
+    already claimed by other stations in the same geographic cluster,
+    guaranteeing that at most one station per cluster is faulty at
+    any given evaluation timestamp.
     """
     rng = np.random.default_rng(seed)
     if ANOMALY_DENSITY_MULTIPLIER < 0:
@@ -608,6 +620,7 @@ def inject_anomalies(df: pd.DataFrame, seed: int = RANDOM_SEED) -> pd.DataFrame:
     # inject_multivariate claims all three columns since it touches
     # all three at once.
     claimed_spans = {col: [] for col in columns}
+    all_placed_spans = []
     fault_counts = {fn: 0 for fn in fault_functions}
     rows_injected = 0
 
@@ -627,6 +640,12 @@ def inject_anomalies(df: pd.DataFrame, seed: int = RANDOM_SEED) -> pd.DataFrame:
             if has_overlap(claimed_spans, cols_needed, idx, candidate_end):
                 continue
 
+            # Cluster-level concurrency check (Benchmark B PCL-Compatible regime):
+            # Prohibit scheduling if another station in the same cluster is already active
+            if cluster_claimed_spans is not None:
+                if any(spans_overlap(idx, candidate_end, cs, ce) for cs, ce in cluster_claimed_spans):
+                    continue
+
             result = fault_fn(df, idx, column, rng)
 
             # An injector may decline an invalid candidate (notably a
@@ -645,6 +664,9 @@ def inject_anomalies(df: pd.DataFrame, seed: int = RANDOM_SEED) -> pd.DataFrame:
             df.loc[start:end, "fault_type"] = fault_type
             for col in cols_needed:
                 claimed_spans[col].append((start, end))
+            all_placed_spans.append((start, end))
+            if cluster_claimed_spans is not None:
+                cluster_claimed_spans.append((start, end))
             rows_injected += (end - start + 1)
             fault_counts[fault_fn] += 1
             return True
@@ -653,13 +675,6 @@ def inject_anomalies(df: pd.DataFrame, seed: int = RANDOM_SEED) -> pd.DataFrame:
     # Pass 1 -- guarantee the floor. Every fault type gets at least
     # MIN_EVENTS_PER_TYPE events before anything else happens, so a
     # rare-weighted or overlap-unlucky type can never end up at zero.
-    # inject_multivariate goes through this pass too, and since it's
-    # the only multi-column type, doing this BEFORE the weighted fill
-    # below (which draws from all types in whatever order it likes)
-    # still isn't enough on its own -- so we also run this floor pass
-    # once per type up front, while every column still has the most
-    # open space available, which is when a 3-column-agreement fault
-    # has the best odds of finding room.
     scaled_min_events = (
         0 if ANOMALY_DENSITY_MULTIPLIER == 0
         else max(1, round(MIN_EVENTS_PER_TYPE * ANOMALY_DENSITY_MULTIPLIER))
@@ -672,11 +687,7 @@ def inject_anomalies(df: pd.DataFrame, seed: int = RANDOM_SEED) -> pd.DataFrame:
             placed += 1
 
     # Pass 2 -- fill the remaining row budget with weighted-random
-    # draws across fault types. This is what makes the FINAL mix
-    # reflect realistic relative frequency (more spikes/dropouts than
-    # drift/multivariate) instead of a forced equal split, while still
-    # respecting the overall ~5% contamination target and the
-    # no-overlap guarantee from try_inject.
+    # draws across fault types.
     weight_fns = list(FAULT_WEIGHTS.keys())
     weight_probs = np.array([FAULT_WEIGHTS[fn] for fn in weight_fns])
     weight_probs = weight_probs / weight_probs.sum()
@@ -688,82 +699,99 @@ def inject_anomalies(df: pd.DataFrame, seed: int = RANDOM_SEED) -> pd.DataFrame:
         fault_fn = weight_fns[rng.choice(len(weight_fns), p=weight_probs)]
         try_inject(fault_fn, attempts_budget=1)
 
+    if return_spans:
+        return df, all_placed_spans
     return df
 
 
-def main():
-    print(
-        "Injection density multiplier: "
-        f"{ANOMALY_DENSITY_MULTIPLIER:g} "
-        f"(base rate {INJECTION_RATE:.1%}; effective target "
-        f"{INJECTION_RATE * ANOMALY_DENSITY_MULTIPLIER:.1%})\n"
-    )
-    # Only a RANDOM SUBSET of stations get faults -- not all 20.
-    # If every station were corrupted simultaneously, there'd be no
-    # clean neighbor left to compare against, which defeats spatial
-    # consistency before it's even built (a neighbor comparison is only
-    # meaningful if the neighbor is actually trustworthy). Real sensor
-    # networks also don't have every unit fail at once -- a handful of
-    # faulty stations among many healthy ones is the realistic picture.
-    #
-    # Separate seed from RANDOM_SEED (which controls fault content/
-    # placement) so "which stations fail" and "what the fault looks
-    # like" are independently reproducible.
+def generate_network_benchmark(
+    regime: str = "benchmark_b",
+    seed: int = RANDOM_SEED,
+    faulty_station_ids: set = None,
+    data_dir: Path = DATA_DIR,
+    output_dir: Path = DATA_DIR,
+    save_to_disk: bool = True,
+) -> dict[str, pd.DataFrame]:
+    """
+    Generates full multi-station benchmark dataset under specified regime:
+    - 'benchmark_a' / 'unrestricted': Unrestricted multi-fault stress test.
+    - 'benchmark_b' / 'pcl_compatible': PCL-compatible operational benchmark (max 1 fault per cluster per timestamp).
+    """
+    from collections import defaultdict
     station_files = sorted(
-        p for p in DATA_DIR.glob("AWS-*.csv") if "_labeled" not in p.name
+        p for p in data_dir.glob("AWS-*.csv") if "_labeled" not in p.name
     )
-
     if len(station_files) < 7:
-        print(f"Only {len(station_files)} station CSVs found -- check DATA_DIR / that data_fetch.py has run.")
+        raise FileNotFoundError(f"Only {len(station_files)} station CSVs found in {data_dir}")
 
-    # Target the 7 regional cluster center stations to receive injected faults.
-    # All 21 neighbor stations (AWS-*-101/102/103) stay 100% clean to act as trustworthy spatial neighbors.
-    CENTER_STATION_IDS = {
-        "AWS-DEL-011", "AWS-CHN-024", "AWS-MUM-007", "AWS-KOL-015",
-        "AWS-BHO-030", "AWS-RAN-067", "AWS-VAR-052",
-    }
-    faulty_files = {p for p in station_files if p.stem in CENTER_STATION_IDS}
-    if not faulty_files:
-        selection_rng = np.random.default_rng(5)
-        faulty_indices = selection_rng.choice(
-            len(station_files), size=min(7, len(station_files)), replace=False
-        )
-        faulty_files = {station_files[i] for i in faulty_indices}
+    # Map stations to clusters
+    station_to_cluster = {}
+    try:
+        from config import CLUSTERS
+        for cid, cinfo in CLUSTERS.items():
+            all_s = [cinfo["center"]["station_id"]] + [n["station_id"] for n in cinfo["neighbors"]]
+            for sid in all_s:
+                station_to_cluster[sid] = cid
+    except Exception:
+        pass
 
-    print(f"Selected {len(faulty_files)} of {len(station_files)} stations to receive injected faults:")
-    for f in sorted(faulty_files):
-        print(f"  -> {f.stem}")
-    print(f"Remaining {len(station_files) - len(faulty_files)} stations stay clean (real data only) -- these are your trustworthy spatial-consistency neighbors.\n")
+    if faulty_station_ids is None:
+        # Default target stations (e.g., 5-7 stations receiving realistic fault episodes)
+        faulty_station_ids = {
+            "AWS-BHO-030", "AWS-KOL-101", "AWS-MUM-007", "AWS-RAN-067", "AWS-RAN-101"
+        }
+
+    cluster_spans = defaultdict(list)
+    results = {}
 
     for csv_path in station_files:
-        df = pd.read_csv(csv_path, parse_dates=["timestamp"])
+        sid = csv_path.stem
+        cid = station_to_cluster.get(sid, "UNKNOWN")
+        df_clean = pd.read_csv(csv_path, parse_dates=["timestamp"])
 
-        if csv_path in faulty_files:
-            print(f"Injecting anomalies into {csv_path.name}...")
-            # Each station gets its OWN seed, derived from the global
-            # RANDOM_SEED plus its position in the sorted file list.
-            # Without this, every faulty station picked the exact same
-            # relative row pattern and fault-type mix (confirmed in
-            # testing -- 3 stations, identical 60/60/60 breakdown),
-            # which isn't realistic: independent sensor failures
-            # shouldn't sync up like that.
-            station_seed = RANDOM_SEED + station_files.index(csv_path)
-            injected = inject_anomalies(df, seed=station_seed)
-            n_anomalies = injected["is_anomaly"].sum()
-            print(f"  -> {n_anomalies} of {len(injected)} rows flagged as ground-truth anomalies")
-            print(f"  -> fault type breakdown:\n{injected['fault_type'].value_counts()}\n")
+        if sid in faulty_station_ids:
+            station_seed = seed + station_files.index(csv_path) * 1009
+            c_spans = cluster_spans[cid] if regime in ("benchmark_b", "pcl_compatible") else None
+            injected, new_spans = inject_anomalies(
+                df_clean,
+                seed=station_seed,
+                cluster_claimed_spans=c_spans,
+                return_spans=True,
+            )
+            if regime in ("benchmark_b", "pcl_compatible") and new_spans:
+                cluster_spans[cid].extend(new_spans)
+            results[sid] = injected
         else:
-            # Clean station: still write a "_labeled" file for schema
-            # consistency downstream (features.py can always expect
-            # is_anomaly/fault_type columns to exist), just with
-            # everything correctly labeled as non-anomalous.
-            injected = df.copy()
+            injected = df_clean.copy()
             injected["is_anomaly"] = False
             injected["fault_type"] = None
-            print(f"{csv_path.name}: left clean (0 anomalies) -- serves as a trustworthy neighbor\n")
+            results[sid] = injected
 
-        output_path = DATA_DIR / csv_path.name.replace(".csv", "_labeled.csv")
-        injected.to_csv(output_path, index=False)
+        if save_to_disk:
+            out_file = output_dir / f"{sid}_labeled.csv"
+            injected.to_csv(out_file, index=False)
+
+    return results
+
+
+def main():
+    import argparse
+    parser = argparse.ArgumentParser(description="SkyGuard AI Synthetic Anomaly Injector")
+    parser.add_argument(
+        "--regime",
+        choices=["benchmark_a", "benchmark_b", "unrestricted", "pcl_compatible"],
+        default="benchmark_b",
+        help="Benchmark regime: benchmark_a (unrestricted stress test) or benchmark_b (PCL-compatible max 1 fault/cluster)",
+    )
+    parser.add_argument("--seed", type=int, default=RANDOM_SEED, help="Random seed")
+    args = parser.parse_args()
+
+    print(
+        f"Generating network benchmark in regime '{args.regime}' with seed {args.seed}...\n"
+        f"Injection density multiplier: {ANOMALY_DENSITY_MULTIPLIER:g} (base rate {INJECTION_RATE:.1%})\n"
+    )
+    generate_network_benchmark(regime=args.regime, seed=args.seed, save_to_disk=True)
+    print(f"\nBenchmark generation complete -> Saved to {DATA_DIR}/*_labeled.csv")
 
 
 if __name__ == "__main__":
