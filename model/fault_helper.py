@@ -47,6 +47,14 @@ def feature_columns() -> list[str]:
     return cols
 
 
+_STATIONS_META = None
+
+def _get_stations_meta() -> pd.DataFrame:
+    global _STATIONS_META
+    if _STATIONS_META is None:
+        _STATIONS_META = pd.read_csv(DATA_DIR / "stations_metadata.csv")[["station_id", "cluster_id"]]
+    return _STATIONS_META
+
 def build_network_features(frame: pd.DataFrame) -> pd.DataFrame:
     """Produce causal station and leave-one-out cluster features."""
     required = ["station_id", "timestamp", "is_anomaly", "fault_type"]
@@ -69,7 +77,7 @@ def build_network_features(frame: pd.DataFrame) -> pd.DataFrame:
     if "__network" not in featured:
         featured["__network"] = 0
     featured["__base_station"] = featured["station_id"].str.replace(r"__n\d+$", "", regex=True)
-    meta = pd.read_csv(DATA_DIR / "stations_metadata.csv")[["station_id", "cluster_id"]]
+    meta = _get_stations_meta()
     featured = featured.merge(meta, left_on="__base_station", right_on="station_id", how="left", suffixes=("", "_meta"))
     featured = featured.sort_values(["station_id", "timestamp"]).reset_index(drop=True)
     featured = featured.copy()
@@ -250,3 +258,67 @@ def predict_faults(model, cols: list[str], network: pd.DataFrame, threshold: flo
         "raw_nan_alert": raw_nan_alert,
     }, index=result.index)
     return pd.concat([result, helper_columns], axis=1)
+
+
+def score_live_fault_helpers(
+    station_id: str,
+    raw_reading: dict,
+    history_df: pd.DataFrame,
+    neighbor_buffers: dict[str, pd.DataFrame],
+    fault_helper_artifact: dict,
+) -> dict:
+    """
+    Score live ExtraTrees general helper and frozen channel specialists
+    using causal rolling history and neighbor buffers.
+    """
+    if fault_helper_artifact is None:
+        return {}
+
+    frames = []
+    if not history_df.empty:
+        frames.append(history_df)
+    else:
+        frames.append(pd.DataFrame([dict(raw_reading, station_id=station_id)]))
+
+    if neighbor_buffers:
+        for nid, nbuf in neighbor_buffers.items():
+            if not nbuf.empty:
+                frames.append(nbuf)
+
+    cluster_df = pd.concat(frames, ignore_index=True)
+    if "is_anomaly" not in cluster_df.columns:
+        cluster_df["is_anomaly"] = False
+    if "fault_type" not in cluster_df.columns:
+        cluster_df["fault_type"] = "none"
+
+    featured = build_network_features(cluster_df)
+    target_rows = featured[featured["station_id"] == station_id].sort_values("timestamp")
+    target_latest = target_rows.iloc[[-1]] if not target_rows.empty else featured.iloc[[-1]]
+
+    frozen_alert = False
+    frozen_helpers = fault_helper_artifact.get("frozen_helpers") if isinstance(fault_helper_artifact, dict) else None
+    if frozen_helpers:
+        from config import FROZEN_HELPER_ALERT_THRESHOLD
+        scored_frozen = score_frozen_channels(target_latest, frozen_helpers, FROZEN_HELPER_ALERT_THRESHOLD)
+        frozen_alert = bool(scored_frozen["frozen_helper_alert"].iloc[0])
+
+    fh_prob = None
+    if isinstance(fault_helper_artifact, dict):
+        fh_model = fault_helper_artifact.get("helper_model")
+        fh_cols = fault_helper_artifact.get("helper_columns")
+    else:
+        fh_model, fh_cols = fault_helper_artifact[:2]
+
+    if fh_model is not None and fh_cols is not None:
+        available_cols = [c for c in fh_cols if c in target_latest.columns]
+        if available_cols:
+            fh_prob = float(fh_model.predict_proba(target_latest[available_cols])[:, 1][0])
+
+    activity_gap = target_latest.get("temp_activity_gap", pd.Series([np.nan])).iloc[0]
+
+    return {
+        "frozen_helper_alert": frozen_alert,
+        "fh_prob": fh_prob,
+        "temp_activity_gap": activity_gap,
+    }
+

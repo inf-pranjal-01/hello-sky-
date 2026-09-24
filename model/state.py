@@ -217,6 +217,7 @@ class StationBuffer:
         row["station_id"] = self.station_id
         row["timestamp"] = timestamp
         self._raw_rows.append(row)
+        self._cache_dirty = True
 
     def reset_detection_state(self):
         """
@@ -395,6 +396,103 @@ class StateManager:
         """Frontend 'force recovery' affordance (Draft 2 §6 Frontend TODO) -- see StationBuffer.force_recover()."""
         self.buffers[station_id].force_recover()
 
+    def ingest_batch(
+        self,
+        network_readings: dict[str, tuple[dict, any]],
+    ) -> dict[str, dict]:
+        """
+        Timestamp-coherent atomic network ingestion (5-phase execution).
+        Guarantees 100% station-order invariance across all stations at timestamp T.
+        
+        Args:
+            network_readings: dict mapping station_id -> (raw_reading_dict, timestamp)
+            Supports any subset of stations (e.g. 28/28, 27/28, 20/28).
+            
+        Returns:
+            dict mapping station_id -> verdict_dict
+        """
+        # Phase 1: Ingest & filter valid readings
+        valid_items = {
+            sid: (raw, ts) for sid, (raw, ts) in network_readings.items()
+            if raw is not None and sid in self.buffers
+        }
+        if not valid_items:
+            return {}
+
+        # Phase 2: Snapshot — freeze pre-T state across all stations
+        frozen_histories = {
+            sid: self.buffers[sid].raw_history_df()
+            for sid in self.buffers
+        }
+
+        # Build isolated evaluation inputs from the frozen snapshot
+        eval_inputs = {}
+        for sid, (raw_reading, timestamp) in valid_items.items():
+            current_row = dict(raw_reading, station_id=sid, timestamp=timestamp)
+            h_df = frozen_histories[sid]
+            h_df_with_current = (
+                pd.concat([h_df, pd.DataFrame([current_row])], ignore_index=True)
+                if not h_df.empty else pd.DataFrame([current_row])
+            )
+
+            neighbor_buffers = {}
+            for nid in self.neighbor_map.get(sid, []):
+                nbuf_df = frozen_histories.get(nid, pd.DataFrame())
+                if nid in valid_items:
+                    n_raw, n_ts = valid_items[nid]
+                    if n_raw is not None:
+                        n_ts_dt = pd.to_datetime(n_ts, utc=True)
+                        has_ts = False
+                        if not nbuf_df.empty and "timestamp" in nbuf_df.columns:
+                            has_ts = (pd.to_datetime(nbuf_df["timestamp"], utc=True) == n_ts_dt).any()
+                        if not has_ts:
+                            n_row = dict(n_raw, station_id=nid, timestamp=n_ts)
+                            nbuf_df = pd.concat([nbuf_df, pd.DataFrame([n_row])], ignore_index=True) if not nbuf_df.empty else pd.DataFrame([n_row])
+                neighbor_buffers[nid] = nbuf_df
+
+            eval_inputs[sid] = (raw_reading, h_df_with_current, neighbor_buffers, timestamp)
+
+        # Phase 3: Detect — evaluate each station against the frozen snapshot
+        verdicts = {}
+        for sid, (raw_reading, h_df_with_current, neighbor_buffers, timestamp) in eval_inputs.items():
+            verdict = DecisionEngine.decide(
+                raw_reading,
+                h_df_with_current,
+                neighbor_buffers,
+                self.artifact,
+                state=self.explainer,
+            )
+            verdict["confirmed_spike_params"] = {
+                event["parameter"] for event in verdict.get("confirmed_spikes", [])
+            }
+            verdicts[sid] = verdict
+
+        # Phase 4 & 5: Commit and Persist
+        for sid, verdict in verdicts.items():
+            buf = self.buffers[sid]
+            raw_reading, timestamp = valid_items[sid]
+
+            buf.health.record(verdict)
+            if buf.recovery_active:
+                buf.update_recovery(verdict)
+            verdict["health_status"] = buf.health.status
+
+            for spike in verdict.get("confirmed_spikes", []):
+                self.history.mark_spike(
+                    sid, spike["timestamp"], spike["parameter"],
+                    spike["suggested_value"], self.mode,
+                )
+                buf._raw_rows = deque(
+                    (row for row in buf._raw_rows if pd.Timestamp(row["timestamp"]) != spike["timestamp"]),
+                    maxlen=RAW_HISTORY_MAXLEN_HOURS,
+                )
+                buf._cache_dirty = True
+
+            buf.record_raw_reading(raw_reading, timestamp, verdict)
+            self.history.append(sid, timestamp, raw_reading, verdict, source=self.mode)
+
+        return verdicts
+
     def ingest_reading(
         self,
         station_id: str,
@@ -402,79 +500,10 @@ class StateManager:
         timestamp,
         current_network_readings: Optional[dict] = None,
     ) -> dict:
-        buf = self.buffers[station_id]
-        history_df = buf.raw_history_df()
-
-        current_row = dict(raw_reading, station_id=station_id, timestamp=timestamp)
-        history_df_with_current = (
-            pd.concat([history_df, pd.DataFrame([current_row])], ignore_index=True)
-            if not history_df.empty else pd.DataFrame([current_row])
-        )
-
-        neighbor_buffers = {}
-        for nid in self.neighbor_map.get(station_id, []):
-            nbuf_df = self.buffers[nid].raw_history_df()
-            if current_network_readings and nid in current_network_readings:
-                n_raw, n_ts = current_network_readings[nid]
-                if n_raw is not None:
-                    n_ts_dt = pd.to_datetime(n_ts, utc=True)
-                    has_ts = False
-                    if not nbuf_df.empty and "timestamp" in nbuf_df.columns:
-                        has_ts = (pd.to_datetime(nbuf_df["timestamp"], utc=True) == n_ts_dt).any()
-                    if not has_ts:
-                        n_row = dict(n_raw, station_id=nid, timestamp=n_ts)
-                        nbuf_df = pd.concat([nbuf_df, pd.DataFrame([n_row])], ignore_index=True) if not nbuf_df.empty else pd.DataFrame([n_row])
-            neighbor_buffers[nid] = nbuf_df
-
-        verdict = DecisionEngine.decide(
-            raw_reading,
-            history_df_with_current,
-            neighbor_buffers,
-            self.artifact,
-            state=self.explainer,
-        )
-        # A spike can only be proved after the following reading
-        # returns to baseline.  Count that confirmed, prior event for
-        # the repeated-fault health policy, while keeping THIS normal
-        # confirming reading out of the anomaly stream.
-        verdict["confirmed_spike_params"] = {
-            event["parameter"] for event in verdict.get("confirmed_spikes", [])
-        }
-        # Health updated with THIS verdict BEFORE recording, so a
-        # reading that tips the station into OFFLINE is itself
-        # correctly excluded from its own future baseline.
-        buf.health.record(verdict)
-
-        if buf.recovery_active:
-            buf.update_recovery(verdict)
-
-        # Persist the resulting health state for this exact reading.
-        # Stamping this before record() would lag every trend/history
-        # point by one verdict and hide the actual OFFLINE transition.
-        verdict["health_status"] = buf.health.status
-
-        for spike in verdict.get("confirmed_spikes", []):
-            self.history.mark_spike(
-                station_id, spike["timestamp"], spike["parameter"],
-                spike["suggested_value"], self.mode,
-            )
-            # The candidate was previously admitted as normal because
-            # confirmation was unavailable. Remove it before future
-            # rolling baselines are computed.
-            buf._raw_rows = deque(
-                (row for row in buf._raw_rows if pd.Timestamp(row["timestamp"]) != spike["timestamp"]),
-                maxlen=RAW_HISTORY_MAXLEN_HOURS,
-            )
-            buf._cache_dirty = True
-
-        buf.record_raw_reading(raw_reading, timestamp, verdict)
-
-        # Persisted long-horizon log -- mode-independent, tagged with
-        # the CURRENT mode so live vs replay stretches stay
-        # distinguishable after the fact. See history_store.py.
-        self.history.append(station_id, timestamp, raw_reading, verdict, source=self.mode)
-
-        return verdict
+        batch = dict(current_network_readings or {})
+        batch[station_id] = (raw_reading, timestamp)
+        verdicts = self.ingest_batch(batch)
+        return verdicts[station_id]
 
     def mark_station_repaired(self, station_id: str, timestamp):
         """Called by main.py's repair endpoint (gradual recovery)."""

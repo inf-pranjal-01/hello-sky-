@@ -470,30 +470,34 @@ class SimulatorState:
             if r_reading is not None:
                 network_snapshot[sid] = (r_reading, r_ts)
 
-        # Phase 2: Ingest with complete symmetric peer consensus
+        # Phase 2: Ingest with complete symmetric peer consensus via ingest_batch
+        to_ingest_batch = {}
         for station_id in self.metadata["station_id"]:
             if station_id not in network_snapshot:
                 continue
             raw_reading, reading_timestamp = network_snapshot[station_id]
-
-            # Replay: every CSV row is a genuine new reading.
-            #
-            # Live: only ingest when Open-Meteo gives us a genuinely
-            # different reading or when an explicit Refresh was clicked.
             should_ingest = (
                 current_mode == "replay"
                 or getattr(self, "_force_live_ingest", False)
                 or self._last_ingested_timestamp.get(station_id) != reading_timestamp
             )
-
             if should_ingest:
-                verdict = await asyncio.to_thread(
-                    self.manager.ingest_reading,
-                    station_id,
-                    raw_reading,
-                    reading_timestamp,
-                    network_snapshot,
-                )
+                to_ingest_batch[station_id] = (raw_reading, reading_timestamp)
+
+        batch_verdicts = {}
+        if to_ingest_batch:
+            batch_verdicts = await asyncio.to_thread(
+                self.manager.ingest_batch,
+                to_ingest_batch,
+            )
+
+        for station_id in self.metadata["station_id"]:
+            if station_id not in network_snapshot:
+                continue
+            raw_reading, reading_timestamp = network_snapshot[station_id]
+
+            if station_id in batch_verdicts:
+                verdict = batch_verdicts[station_id]
                 self._last_ingested[station_id] = dict(raw_reading)
                 self._last_ingested_timestamp[station_id] = reading_timestamp
             else:
