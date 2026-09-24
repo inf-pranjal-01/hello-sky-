@@ -1,13 +1,13 @@
 station_id,timestamp,fault_type,is_anomaly,__predicted,__decision_route,__model_pct,__rule_confidence_pct,__score_pct
-AWS-BHO-030,2025-01-27 17:00:00,unstructured_anomaly,True,True,model_override,99.97614603099693,100.0,99.98568761859815
-AWS-MUM-007,2025-02-05 18:00:00,unstructured_anomaly,True,True,model_override,99.97235760157103,100.0,99.98341456094262
-AWS-KOL-101,2025-02-22 23:00:00,unstructured_anomaly,True,True,model_override,99.97105530060973,100.0,99.98263318036584
-AWS-BHO-030,2025-02-19 11:00:00,unstructured_anomaly,True,True,model_override,99.96890514014935,100.0,99.9813430840896
-AWS-RAN-101,2025-01-21 14:00:00,unstructured_anomaly,True,True,model_override,99.96834166668893,100.0,99.98100500001335
-AWS-KOL-101,2025-01-09 05:00:00,unstructured_anomaly,True,True,model_override,99.96776195470477,100.0,99.98065717282286
-AWS-BHO-030,2025-01-27 19:00:00,unstructured_anomaly,True,True,model_override,99.96527848820499,100.0,99.97916709292299
-AWS-BHO-030,2025-01-27 20:00:00,unstructured_anomaly,True,True,model_override,99.96527167739598,100.0,99.97916300643757
-AWS-KOL-101,2025-01-09 08:00:00,unstructured_anomaly,True,True,model_override,99.96517590898898,100.0,99.9791055453934
-AWS-KOL-101,2025-02-13 11:00:00,unstructured_anomaly,True,True,model_override,99.96513997854385,100.0,99.9790839871263
-AWS-KOL-101,2025-01-09 12:00:00,unstructured_anomaly,True,True,model_override,99.96470647180233,100.0,99.97882388308139
-AWS-BHO-030,2025-02-11 04:00:00,unstructured_anomaly,True,True,model_override,99.96443143120518,100.0,99.97865885872311
+AWS-KOL-101,2025-01-08 05:00:00,sensor_fail_low,True,True,model_override,98.67212737967114,100.0,99.20327642780268
+AWS-RAN-101,2025-03-22 12:00:00,sensor_fail_low,True,True,model_override,98.41535039633798,100.0,99.04921023780278
+AWS-KOL-101,2025-03-07 01:00:00,sensor_fail_low,True,True,model_override,97.85364303299808,100.0,98.71218581979885
+AWS-RAN-101,2025-03-22 14:00:00,sensor_fail_low,True,True,model_override,97.85298800106398,100.0,98.71179280063839
+AWS-RAN-101,2025-03-22 13:00:00,sensor_fail_low,True,True,model_override,97.56811336838902,100.0,98.54086802103342
+AWS-BHO-030,2025-01-21 08:00:00,sensor_fail_low,True,True,model_override,97.31006042384197,100.0,98.38603625430518
+AWS-BHO-030,2025-01-21 09:00:00,sensor_fail_low,True,True,model_override,96.16498514820435,100.0,97.69899108892261
+AWS-RAN-101,2025-02-21 13:00:00,sensor_fail_low,True,True,model_override,95.89385774782428,100.0,97.53631464869457
+AWS-KOL-101,2025-01-13 11:00:00,sensor_fail_low,True,True,model_override,95.73148806506872,100.0,97.43889283904123
+AWS-KOL-101,2025-01-08 07:00:00,sensor_fail_low,True,True,model_override,95.21937559829216,100.0,97.1316253589753
+AWS-RAN-067,2025-01-13 18:00:00,sensor_fail_low,True,True,model_override,95.17417807567476,100.0,97.10450684540486
+AWS-RAN-067,2025-03-01 07:00:00,sensor_fail_low,True,True,model_override,95.00002958691258,100.0,97.00001775214754

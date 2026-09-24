@@ -1302,14 +1302,22 @@ def print_exact_gate_comparison(
 
 
 
-def evaluate_all(labeled_files: list, artifact: dict) -> dict:
-    frames = []
-    for path in labeled_files:
-        d = pd.read_csv(path, parse_dates=["timestamp"])
-        if "is_anomaly" not in d.columns:
-            raise ValueError(f"{path.name} has no is_anomaly column -- is this actually a _labeled.csv?")
-        d["__source_file"] = path.name
-        frames.append(d)
+def evaluate_all(labeled_files: list | dict, artifact: dict, silent: bool = False) -> dict:
+    if isinstance(labeled_files, dict):
+        frames = []
+        for sid, df_raw in labeled_files.items():
+            d = df_raw.copy()
+            d["station_id"] = sid
+            d["__source_file"] = f"{sid}_labeled.csv"
+            frames.append(d)
+    else:
+        frames = []
+        for path in labeled_files:
+            d = pd.read_csv(path, parse_dates=["timestamp"])
+            if "is_anomaly" not in d.columns:
+                raise ValueError(f"{path.name} has no is_anomaly column -- is this actually a _labeled.csv?")
+            d["__source_file"] = path.name
+            frames.append(d)
     df_full = pd.concat(frames, ignore_index=True)
     df_full["timestamp"] = pd.to_datetime(df_full["timestamp"]).dt.tz_localize(None)
     df_full = add_frozen_channel_labels_from_reference(df_full)
@@ -1485,38 +1493,40 @@ def evaluate_all(labeled_files: list, artifact: dict) -> dict:
     featured["__predicted"] = predicted
     featured["__predicted_fault_type"] = pred_ft
 
-    _print_evidence_audit(featured)
+    if not silent:
+        _print_evidence_audit(featured)
 
-    if not per_sensor_log.empty:
-        per_sensor_log.to_csv(PER_SENSOR_LOG_PATH, index=False)
-        print(f"\n[Artifact] Per-station/per-sensor fault log ({len(per_sensor_log)} flagged readings) saved -> {PER_SENSOR_LOG_PATH}")
-        if "--verbose" in sys.argv:
-            print(per_sensor_log.groupby(["station_id", "parameter", "fault_type"]).size()
-                  .rename("count").reset_index().to_string(index=False))
-    else:
-        print("\nNo readings were flagged by the rule engine -- per-sensor log is empty.")
+        if not per_sensor_log.empty:
+            per_sensor_log.to_csv(PER_SENSOR_LOG_PATH, index=False)
+            print(f"\n[Artifact] Per-station/per-sensor fault log ({len(per_sensor_log)} flagged readings) saved -> {PER_SENSOR_LOG_PATH}")
+            if "--verbose" in sys.argv:
+                print(per_sensor_log.groupby(["station_id", "parameter", "fault_type"]).size()
+                      .rename("count").reset_index().to_string(index=False))
+        else:
+            print("\nNo readings were flagged by the rule engine -- per-sensor log is empty.")
 
-    print(f"\n--- AUTO-RECOVERY DIAGNOSTIC (§10) ---")
-    if not recovery_log.empty:
-        recovery_log.to_csv(RECOVERY_LOG_PATH, index=False)
-        stuck = recovery_log[recovery_log["recovered_at"].isna()]
-        recovered = recovery_log[~recovery_log["recovered_at"].isna()]
-        print(f"{len(recovered)} OFFLINE episode(s) recovered within the run "
-              f"(mean duration {recovered['duration_hours'].mean():.1f}h)." if len(recovered) else
-              "No OFFLINE episodes recovered within the run.")
-        if len(stuck):
-            print(f"{len(stuck)} sensor(s) STILL OFFLINE at end of run:")
-            print(stuck[["station_id", "parameter", "offline_since"]].to_string(index=False))
-        print(f"[Artifact] Full recovery log saved -> {RECOVERY_LOG_PATH}")
-    else:
-        print("No OFFLINE episodes occurred during this run.")
+        print(f"\n--- AUTO-RECOVERY DIAGNOSTIC (§10) ---")
+        if not recovery_log.empty:
+            recovery_log.to_csv(RECOVERY_LOG_PATH, index=False)
+            stuck = recovery_log[recovery_log["recovered_at"].isna()]
+            recovered = recovery_log[~recovery_log["recovered_at"].isna()]
+            print(f"{len(recovered)} OFFLINE episode(s) recovered within the run "
+                  f"(mean duration {recovered['duration_hours'].mean():.1f}h)." if len(recovered) else
+                  "No OFFLINE episodes recovered within the run.")
+            if len(stuck):
+                print(f"{len(stuck)} sensor(s) STILL OFFLINE at end of run:")
+                print(stuck[["station_id", "parameter", "offline_since"]].to_string(index=False))
+            print(f"[Artifact] Full recovery log saved -> {RECOVERY_LOG_PATH}")
+        else:
+            print("No OFFLINE episodes occurred during this run.")
 
-    print_exact_gate_comparison(
-        featured, row_hard, row_rule_conf_base, row_fault_type_base, artifact,
-        model_pct, helper_alert, frozen_helper_alert, raw_nans_featured
-    )
+    if not silent:
+        print_exact_gate_comparison(
+            featured, row_hard, row_rule_conf_base, row_fault_type_base, artifact,
+            model_pct, helper_alert, frozen_helper_alert, raw_nans_featured
+        )
 
-    results = {"__overall__": _score_and_report(featured, "ALL FILES COMBINED", n_dropped_total, silent=False)}
+    results = {"__overall__": _score_and_report(featured, "ALL FILES COMBINED", n_dropped_total, silent=silent)}
 
     # Episodic / Fault-Event Evaluation (Latency-adjusted fault event recall)
     ep_result = compute_episodic_result(
@@ -1524,20 +1534,22 @@ def evaluate_all(labeled_files: list, artifact: dict) -> dict:
         pred_arr=featured["__predicted"].to_numpy(dtype=bool),
         pred_ft_arr=featured["__predicted_fault_type"].to_numpy(),
     )
+    results["__episodic__"] = ep_result
     overall_m = results["__overall__"]
-    print_episodic_report(
-        ep_result,
-        label="ALL FILES COMBINED",
-        point_tp=overall_m["tp"],
-        point_fp=overall_m["fp"],
-        point_fn=overall_m["fn"],
-        point_prec=overall_m["precision"],
-        point_rec=overall_m["recall"],
-        point_f1=overall_m["f1"],
-    )
+    if not silent:
+        print_episodic_report(
+            ep_result,
+            label="ALL FILES COMBINED",
+            point_tp=overall_m["tp"],
+            point_fp=overall_m["fp"],
+            point_fn=overall_m["fn"],
+            point_prec=overall_m["precision"],
+            point_rec=overall_m["recall"],
+            point_f1=overall_m["f1"],
+        )
 
     station_records = []
-    verbose = "--verbose" in sys.argv or "--all-stations" in sys.argv
+    verbose = ("--verbose" in sys.argv or "--all-stations" in sys.argv) and not silent
 
     for source_file, group in featured.groupby("__source_file"):
         n_in_file = int((df_full["__source_file"] == source_file).sum())
@@ -1566,42 +1578,43 @@ def evaluate_all(labeled_files: list, artifact: dict) -> dict:
     station_breakdown_path = DATA_DIR / "eval_station_breakdown.csv"
     station_df.to_csv(station_breakdown_path, index=False)
 
-    # 7-Cluster Regional Summary
-    print("\n" + "=" * 90)
-    print("REGIONAL MICROCLIMATE CLUSTER SUMMARY (7 REGIONS)")
-    print("=" * 90)
-    print(f"  {'Cluster':<10} {'Region / Climate Description':<30} {'Stations':<10} {'True Faults':<13} {'Alerts Sent':<13} {'Precision':<11} {'Recall':<10} {'F1':<8}")
-    print("  " + "-" * 88)
-    
-    cluster_meta = {
-        "CHN": "Chennai (Coastal Humid)",
-        "DEL": "Delhi (Inland Semi-Arid)",
-        "MUM": "Mumbai (Coastal Tropical)",
-        "KOL": "Kolkata (Gangetic Delta)",
-        "BHO": "Bhopal (Central Plateau)",
-        "VAR": "Varanasi (Indo-Gangetic Plain)",
-        "RAN": "Ranchi (Chota Nagpur Plateau)",
-    }
-    
-    station_df["cluster"] = station_df["station_id"].str.extract(r'AWS-([A-Z]+)-')[0].fillna("OTHER")
-    for cluster_code, c_group in station_df.groupby("cluster"):
-        c_name = cluster_meta.get(cluster_code, f"{cluster_code} Region")
-        c_stations = len(c_group)
-        c_true = int(c_group["true_anomalies"].sum())
-        c_pred = int(c_group["predicted_anomalies"].sum())
-        c_tp = int(c_group["tp"].sum())
-        c_fp = int(c_group["fp"].sum())
-        c_fn = int(c_group["fn"].sum())
-        c_prec = c_tp / (c_tp + c_fp) if (c_tp + c_fp) > 0 else (1.0 if c_pred == 0 else 0.0)
-        c_rec = c_tp / (c_tp + c_fn) if (c_tp + c_fn) > 0 else (1.0 if c_true == 0 else 0.0)
-        c_f1 = 2 * c_prec * c_rec / (c_prec + c_rec) if (c_prec + c_rec) > 0 else (1.0 if c_true == 0 and c_pred == 0 else 0.0)
+    if not silent:
+        # 7-Cluster Regional Summary
+        print("\n" + "=" * 90)
+        print("REGIONAL MICROCLIMATE CLUSTER SUMMARY (7 REGIONS)")
+        print("=" * 90)
+        print(f"  {'Cluster':<10} {'Region / Climate Description':<30} {'Stations':<10} {'True Faults':<13} {'Alerts Sent':<13} {'Precision':<11} {'Recall':<10} {'F1':<8}")
+        print("  " + "-" * 88)
         
-        prec_str = f"{c_prec:.1%}" if c_pred > 0 else ("100.0%" if c_true == 0 else "N/A")
-        rec_str = f"{c_rec:.1%}" if c_true > 0 else "100.0%"
-        f1_str = f"{c_f1:.3f}" if (c_true > 0 or c_pred > 0) else "1.000"
-        print(f"  {cluster_code:<10} {c_name:<30} {c_stations:<10} {c_true:<13} {c_pred:<13} {prec_str:<11} {rec_str:<10} {f1_str:<8}")
-    print("=" * 90)
-    print(f"[Artifact] Detailed 28-station breakdown saved -> {station_breakdown_path}")
+        cluster_meta = {
+            "CHN": "Chennai (Coastal Humid)",
+            "DEL": "Delhi (Inland Semi-Arid)",
+            "MUM": "Mumbai (Coastal Tropical)",
+            "KOL": "Kolkata (Gangetic Delta)",
+            "BHO": "Bhopal (Central Plateau)",
+            "VAR": "Varanasi (Indo-Gangetic Plain)",
+            "RAN": "Ranchi (Chota Nagpur Plateau)",
+        }
+        
+        station_df["cluster"] = station_df["station_id"].str.extract(r'AWS-([A-Z]+)-')[0].fillna("OTHER")
+        for cluster_code, c_group in station_df.groupby("cluster"):
+            c_name = cluster_meta.get(cluster_code, f"{cluster_code} Region")
+            c_stations = len(c_group)
+            c_true = int(c_group["true_anomalies"].sum())
+            c_pred = int(c_group["predicted_anomalies"].sum())
+            c_tp = int(c_group["tp"].sum())
+            c_fp = int(c_group["fp"].sum())
+            c_fn = int(c_group["fn"].sum())
+            c_prec = c_tp / (c_tp + c_fp) if (c_tp + c_fp) > 0 else (1.0 if c_pred == 0 else 0.0)
+            c_rec = c_tp / (c_tp + c_fn) if (c_tp + c_fn) > 0 else (1.0 if c_true == 0 else 0.0)
+            c_f1 = 2 * c_prec * c_rec / (c_prec + c_rec) if (c_prec + c_rec) > 0 else (1.0 if c_true == 0 and c_pred == 0 else 0.0)
+            
+            prec_str = f"{c_prec:.1%}" if c_pred > 0 else ("100.0%" if c_true == 0 else "N/A")
+            rec_str = f"{c_rec:.1%}" if c_true > 0 else "100.0%"
+            f1_str = f"{c_f1:.3f}" if (c_true > 0 or c_pred > 0) else "1.000"
+            print(f"  {cluster_code:<10} {c_name:<30} {c_stations:<10} {c_true:<13} {c_pred:<13} {prec_str:<11} {rec_str:<10} {f1_str:<8}")
+        print("=" * 90)
+        print(f"[Artifact] Detailed 28-station breakdown saved -> {station_breakdown_path}")
     if not verbose:
         print("           (Pass '--verbose' flag to print individual station confusion matrices to terminal)\n")
 

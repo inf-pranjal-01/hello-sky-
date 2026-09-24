@@ -3,3 +3,7 @@ tiger-cloud-rec-skyguard-ai-credentials.env
 *CodeRunnerFile.py
 
 runtime/
+__pycache__/
+*.pyc
+.pytest_cache/
+.freebuff/

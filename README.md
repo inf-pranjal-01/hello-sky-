@@ -256,17 +256,19 @@ Open [http://localhost:5173](http://localhost:5173) in your browser.
 
 ## 🧪 Running the Evaluation Benchmark
 
-To run the offline evaluation against all 28 labeled station datasets:
+To run the complete benchmark evaluation across all 28 stations and all three evaluation regimes (Locked Baseline, Benchmark A Stress Test, and Benchmark B Operational Benchmark):
 
 ```bash
-# Run the summary benchmark
-python model/evaluate.py
-
-# Run with per-station confusion matrices printed
-python model/evaluate.py --verbose
+# Run the canonical evaluation benchmark
+python evaluate.py
 ```
 
-Evaluation results and diagnostics are exported to `data/`:
+The evaluator reports:
+- **Locked Baseline**: Historical canonical benchmark.
+- **Benchmark A — Adversarial Stress Test**: Unrestricted multi-fault injection allowing simultaneous cluster peer corruption.
+- **Benchmark B — Operational Benchmark**: PCL-compatible single-fault-per-cluster operating regime.
+
+Evaluation artifacts are exported to `data/`:
 - `data/eval_station_breakdown.csv`: Per-station metrics (TP, FP, FN, TN, precision, recall, F1).
 - `data/eval_per_sensor_fault_log.csv`: Breakdown of every flagged reading by parameter and fault type.
 - `data/eval_recovery_diagnostic.csv`: Recovery episode tracking.

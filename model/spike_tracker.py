@@ -62,11 +62,6 @@ def step_spike_state(
                 state["violation_run"] = 0
                 state["candidate_dev"] = abs_dev
 
-                # Log ENTRY
-                if kwargs.get('ts'):
-                    with open("scratch/spike_events.jsonl", "a") as f:
-                        f.write(json.dumps({"event": "ENTER", "station": kwargs.get('station'), "param": kwargs.get('param'), "ts": kwargs.get('ts'), "jump": state["jump"], "t0_val": prev_val, "peak_val": val, "thresh": spike_thresh}) + "\n")
-
                 # PEAK-CONFIDENCE BOOST (Tier-2 fix):
                 # When the jump is large enough (|dev| >= 2x effective threshold),
                 # the peak row itself is high-certainty evidence — boost to 92.0
@@ -102,9 +97,6 @@ def step_spike_state(
                 # For those episodes the recovery tick is a clean-weather FP — suppress it.
                 # Small spikes (candidate_dev < 2x threshold) did NOT get a boosted peak,
                 # so they still need the recovery tick to carry the alert — do not suppress.
-                if kwargs.get('ts'):
-                    with open("scratch/spike_events.jsonl", "a") as f:
-                        f.write(json.dumps({"event": "CONFIRM_SUPPRESSED", "station": kwargs.get('station'), "param": kwargs.get('param'), "ts": kwargs.get('ts'), "ticks": state["ticks"], "resid": resid, "elapsed_hours": state["elapsed_hours"]}) + "\n")
                 return 0.0, "CONFIRMED_SPIKE", "Recovery tick suppressed (peak already alerted via bypass)."
             else:
                 # Small spike: peak did not bypass fusion. Keep recovery tick so the
@@ -112,9 +104,6 @@ def step_spike_state(
                 conf = 95.0
                 if graduated_conf_func:
                     conf = graduated_conf_func(state.get("candidate_dev", abs(jump)), effective_thresh)
-                if kwargs.get('ts'):
-                    with open("scratch/spike_events.jsonl", "a") as f:
-                        f.write(json.dumps({"event": "CONFIRM", "station": kwargs.get('station'), "param": kwargs.get('param'), "ts": kwargs.get('ts'), "ticks": state["ticks"], "resid": resid, "elapsed_hours": state["elapsed_hours"]}) + "\n")
                 return max(90.0, conf), "CONFIRMED_SPIKE", "Spike confirmed (small-spike path, recovery tick retained)."
 
         tol = max(SPIKE_NOISE_FLOOR, SPIKE_NOISE_STD_MULTIPLIER * (noise_std or 0.0))
@@ -125,19 +114,9 @@ def step_spike_state(
             state["violation_run"] = 0
         elif resid > state["best_progress"] + tol:
             state["violation_run"] += 1
-            
-        if kwargs.get('ts'):
-            with open("scratch/spike_events.jsonl", "a") as f:
-                f.write(json.dumps({"event": "TICK", "station": kwargs.get('station'), "param": kwargs.get('param'), "ts": kwargs.get('ts'), "ticks": state["ticks"], "val": val, "t0": t0, "exp_now": expected_now, "resid": resid, "best": state["best_progress"], "tol": tol, "runs": state["violation_run"], "eroc": expected_roc, "drift": state["baseline_drift"]}) + "\n")
 
         if state["elapsed_hours"] >= SPIKE_WINDOW_HOURS or state["violation_run"] >= SPIKE_VIOLATION_CONSECUTIVE_REQUIRED:
-            reclass_reason = "TIMEOUT" if state["elapsed_hours"] >= SPIKE_WINDOW_HOURS else "VIOLATION"
             state["status"] = "IDLE"
-            
-            if kwargs.get('ts'):
-                with open("scratch/spike_events.jsonl", "a") as f:
-                    f.write(json.dumps({"event": "RECLASSIFY", "reason": reclass_reason, "station": kwargs.get('station'), "param": kwargs.get('param'), "ts": kwargs.get('ts'), "ticks": state["ticks"], "elapsed": state["elapsed_hours"]}) + "\n")
-                    
             return 0.0, "RECLASSIFIED", "Failed to revert."
 
         return 45.0, "PROVISIONAL", "Tracking candidate spike."
