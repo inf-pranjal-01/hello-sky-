@@ -77,6 +77,12 @@ DATA_DIR = Path(__file__).parent
 # evaluation result; it represents the project's default scenario.
 INJECTION_RATE = 0.05
 
+# BENCHMARK REGIME SWITCH ---------------------------------------------------
+# Options:
+#   "benchmark_b" -> PCL-compatible operational benchmark (<= 1 fault per cluster per timestamp)
+#   "benchmark_a" -> Unrestricted multi-fault stress test (allows simultaneous same-cluster faults)
+DEFAULT_REGIME = "benchmark_b"
+
 # BACKEND-ONLY CONTROL KNOB -------------------------------------------------
 # Relative amount of injected fault data. Change ONLY this value when you
 # want a lighter or heavier replay dataset:
@@ -705,7 +711,7 @@ def inject_anomalies(
 
 
 def generate_network_benchmark(
-    regime: str = "benchmark_b",
+    regime: str = DEFAULT_REGIME,
     seed: int = RANDOM_SEED,
     faulty_station_ids: set = None,
     data_dir: Path = DATA_DIR,
@@ -780,7 +786,7 @@ def main():
     parser.add_argument(
         "--regime",
         choices=["benchmark_a", "benchmark_b", "unrestricted", "pcl_compatible"],
-        default="benchmark_b",
+        default=DEFAULT_REGIME,
         help="Benchmark regime: benchmark_a (unrestricted stress test) or benchmark_b (PCL-compatible max 1 fault/cluster)",
     )
     parser.add_argument("--seed", type=int, default=RANDOM_SEED, help="Random seed")
