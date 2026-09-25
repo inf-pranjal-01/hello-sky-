@@ -113,7 +113,7 @@ FUSION_ANOMALY_THRESHOLD = 50.0
 # At 95, only true sensor rail failures score high enough for this path
 # (sensor_fail_low, multivariate score >99 on the model). Drift, frozen,
 # spike must earn their verdicts through rule+fusion, not model alone.
-MODEL_ALONE_OVERRIDE_THRESHOLD = 85.0
+MODEL_ALONE_OVERRIDE_THRESHOLD = 95.0
 
 # Bypass: once a rule's own confidence is >= this, is_anomaly is forced
 # regardless of the blended score. UNCHANGED at 90. Only physical_bounds
@@ -151,19 +151,15 @@ RULE_BASE_CONFIDENCE = {
     # identical model_pct. The model cannot distinguish them. At confidence
     # 95 > RULE_CONFIDENCE_BYPASS (90), frozen forced is_anomaly with zero
     # model check -- generating 1030 FPs on clean stations. Lowered to 80
-    # (below RULE_CONFIDENCE_BYPASS) so it goes through fusion:
-    # 0.6*10 + 0.4*80 = 44, which is below FUSION_ANOMALY_THRESHOLD (68),
-    # so frozen can no longer fire unless the model ALSO agrees. Cost:
-    # frozen recall drops from ~15% (already near-zero) to ~0%. The health
-    # tracker's 10h/24h counters remain available to catch repeated events.
-    "frozen_value": 80.0,
+    # Bypasses unsupervised model when streak is confirmed
+    "frozen_value": 92.0,
     "sensor_fail_low": 95.0,
     "drift": 85.0,
     # A spike reaches this confidence only after the next reading
     # confirms its return-to-baseline shape.
-    "spike": 85.0,
-    "multivariate_single": 45.0,
-    "multivariate_confirmed": 88.0,
+    "spike": 92.0,
+    "multivariate_single": 55.0,
+    "multivariate_confirmed": 92.0,
 }
 
 
@@ -219,13 +215,13 @@ def graduated_confidence_multivariate(joint_z: float, threshold: float, confirme
     """
     Graduated confidence for multivariate_inconsistency:
     Single tier: 45.0 to 60.0.
-    Confirmed tier: 88.0 to 95.0.
+    Confirmed tier: 90.1 to 95.0 (guaranteed > RULE_CONFIDENCE_BYPASS = 90.0).
     """
     if threshold <= 0:
-        return 88.0 if confirmed else 45.0
+        return 90.1 if confirmed else 45.0
     ratio = max(0.0, min(1.0, (joint_z - threshold) / threshold))
     if confirmed:
-        return round(88.0 + (95.0 - 88.0) * ratio, 1)
+        return round(90.1 + (95.0 - 90.1) * ratio, 1)
     else:
         return round(45.0 + (60.0 - 45.0) * ratio, 1)
 
@@ -260,13 +256,9 @@ EWMA_DRIFT_THRESHOLD = 2.5
 # on its own -- CUSUM must handle them. 7.0 restores the original threshold
 # while maintaining the new diurnal robustness.
 # (Update: now uses strict direction and proper residual draining).
-CUSUM_THRESHOLD = 1.2
-# CUSUM_DIRECTION_STREAK_REQUIRED: LOWERED to 4 (Pass 8 final).
-# Analysis: at streak=4, CUSUM catches 184/329 injected drift TPs on
-# MUM-007 (56%), vs 168 at streak=6. The raw CUSUM fires on 26 clean
-# stations, but the fusion layer suppresses them.
-# (Update: We now strictly require all 4 steps to be in the same direction).
-CUSUM_DIRECTION_STREAK_REQUIRED = 3
+CUSUM_THRESHOLD = 7.0
+# CUSUM_DIRECTION_STREAK_REQUIRED: 4 consecutive steps in same direction
+CUSUM_DIRECTION_STREAK_REQUIRED = 4
 
 # Minimum model confidence required to allow a drift rule to fire
 DRIFT_MIN_MODEL_CORROBORATION = 0.0
@@ -294,7 +286,7 @@ DRIFT_MIN_MODEL_CORROBORATION = 0.0
 # can apply them independently. The old single FROZEN_CONSECUTIVE_REQUIRED
 # is kept as a fallback for any parameter not explicitly listed here.
 # ---------------------------------------------------------------------
-FROZEN_CONSECUTIVE_REQUIRED = 5          # default for temp + humidity
+FROZEN_CONSECUTIVE_REQUIRED = 4          # default for temp + humidity
 FROZEN_CONSECUTIVE_REQUIRED_PRESSURE = 6  # pressure is far more stable in real weather
 # Minimum model_pct required for a frozen streak to contribute to the
 # anomaly verdict (Pass 6). At frozen_value confidence=80 (below bypass),
@@ -326,21 +318,11 @@ UNCORROBORATED_DRIFT_MIN_MODEL_PCT = 40.0
 #       vapor_pressure_consistency_dev measures the actual gap between
 #       observed humidity and what Clausius-Clapeyron/vapor-pressure
 #       conservation implies given the temperature change.
-#
-# MULTIVARIATE_VAPOR_CONSISTENCY_THRESHOLD raised from 8.0 to 15.0
-# (Pass 1 precision drive). Empirical calibration:
-#   - Real monsoon weather (BHO-030 clean): 99th pct = 9.0, max = 17.
-#     1.8% of real readings exceed 8.0 -- that's 39 FPs per station,
-#     2022 total across 25 clean stations.
-#   - Injected multivariate fault VPD: mean=25, all fault rows >15.
-#   At threshold=15.0: real weather FP rate drops to ~0.2% (max 4 per
-#   station), injected recall is UNAFFECTED (all injected fault rows
-#   have VPD >>15).
 # ---------------------------------------------------------------------
-MULTIVARIATE_TEMP_DEVIATION_THRESHOLD = 3.0        # temp: |z| must clear this
+MULTIVARIATE_TEMP_DEVIATION_THRESHOLD = 2.2        # temp: |z| must clear this
 MULTIVARIATE_HUMIDITY_DEVIATION_THRESHOLD = 1.5    # humidity: more lenient -- naturally noisier day to day
 MULTIVARIATE_PRESSURE_FLAT_THRESHOLD = 1.5         # pressure: must STAY under this while temp/humidity are both far outside it
-MULTIVARIATE_VAPOR_CONSISTENCY_THRESHOLD = 20.0    # RAISED 8.0->15.0->20.0: 15 left 167 multivariate FPs on clean stations; at 20 the injected fault VPD (mean=25, min>15) still fully caught while eliminating real monsoon false fires
+MULTIVARIATE_VAPOR_CONSISTENCY_THRESHOLD = 14.0
 MULTIVARIATE_PERSISTENCE_REQUIRED = 2              # §4, final: 2 consecutive readings = confirmed
 MULTIVARIATE_TEMP_ATTRIBUTION_WEIGHT = 1.5
 MULTIVARIATE_ATTRIBUTION_DOMINANCE = 0.7

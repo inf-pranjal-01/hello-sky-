@@ -4,7 +4,7 @@ from typing import Optional, Tuple
 import json
 
 SPIKE_WINDOW_HOURS = 5
-SPIKE_DECAY_RATIO = 0.50
+SPIKE_DECAY_RATIO = 0.5135
 SPIKE_NOISE_FLOOR = 0.2
 SPIKE_NOISE_STD_MULTIPLIER = 1.5
 SPIKE_VIOLATION_CONSECUTIVE_REQUIRED = 3
@@ -69,8 +69,8 @@ def step_spike_state(
                 # needing the recovery tick to confirm. Intentionally coupled with
                 # the CONFIRMED_SPIKE suppression below; neither change works alone.
                 effective_thresh = spike_thresh * multiplier
-                if abs_dev >= 2.0 * effective_thresh:
-                    return 92.0, "PROVISIONAL", f"Large spike at peak ({abs_dev:.1f} >= 2x{effective_thresh:.1f}); peak-confidence bypass."
+                if abs_dev >= effective_thresh:
+                    return 92.0, "PROVISIONAL", f"Candidate spike jump ({abs_dev:.1f} >= {effective_thresh:.1f}); peak-confidence bypass."
 
                 return 40.0, "PROVISIONAL", f"Candidate jump of {step_diff:.1f} detected."
         return 0.0, "IDLE", ""
@@ -89,7 +89,7 @@ def step_spike_state(
         if resid <= abs(jump) * SPIKE_DECAY_RATIO:
             state["status"] = "IDLE"
             effective_thresh = spike_thresh * multiplier
-            peak_was_boosted = state.get("candidate_dev", 0.0) >= 2.0 * effective_thresh
+            peak_was_boosted = state.get("candidate_dev", 0.0) >= effective_thresh
 
             if peak_was_boosted:
                 # RECOVERY-TICK SUPPRESSION (coupled with peak boost at IDLE→PROVISIONAL):

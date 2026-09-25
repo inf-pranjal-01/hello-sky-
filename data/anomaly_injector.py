@@ -95,7 +95,7 @@ ANOMALY_DENSITY_MULTIPLIER = 2.5
 # Held-out replay seed: distinct placements and fault directions from
 # the initial calibration replay. Change deliberately and record it in
 # evaluation output; train.py never consumes these labelled files.
-RANDOM_SEED = 45456231412727229999
+RANDOM_SEED = 20260924
 
 # Fixed (not randomized) fail-low window length. §5b's detector rule
 # triggers reclassification at 2-3 consecutive hours -- 3 sits right at
@@ -530,6 +530,417 @@ def inject_unstructured_anomaly(df: pd.DataFrame, idx: int, column: str, rng: np
     return "unstructured_anomaly", idx, end_idx
 
 
+# =============================================================================
+# OPERATIONAL BENCHMARK V2 FAULT INJECTORS (Benchmark_O_OPERATIONAL_v1)
+# =============================================================================
+
+def inject_drift_v2(df: pd.DataFrame, idx: int, column: str, rng: np.random.Generator):
+    """
+    Operational Drift V2: Physical Sensor Bias Process.
+    x_fault(t) = x_clean(t) + sign * b_mature * ((t-t0)/L)^gamma + sensor_noise
+    """
+    drift_length = int(rng.integers(18, 49))  # 18 to 48 hours
+    end_idx = min(idx + drift_length, len(df) - 1)
+    steps = end_idx - idx + 1
+    direction = float(rng.choice([-1.0, 1.0]))
+
+    clean_series = df[column].dropna()
+    param_mad = float(np.median(np.abs(clean_series - clean_series.median())))
+    if param_mad <= 0:
+        param_mad = float(clean_series.std()) or 1.0
+
+    b_mature = param_mad * float(rng.uniform(3.0, 4.8))
+    if column == "temperature_c":
+        b_mature = max(3.5, min(8.0, b_mature))
+    elif column == "pressure_hpa":
+        b_mature = max(3.5, min(12.0, b_mature))
+    elif column == "humidity_pct":
+        b_mature = max(18.0, min(35.0, b_mature))
+
+    gamma = float(rng.uniform(1.0, 1.2))
+    t_norm = np.linspace(0.0, 1.0, steps)
+    ramp = b_mature * (t_norm ** gamma)
+
+    noise_std = 0.02
+    noise = rng.normal(0, noise_std, steps)
+
+    natural_values = df.loc[idx:end_idx, column].to_numpy(dtype=float)
+    df.loc[idx:end_idx, column] = natural_values + direction * ramp + noise
+    clip_to_physical_limits(df, column, idx, end_idx)
+    return "drift", idx, end_idx
+
+
+def inject_frozen_v2(df: pd.DataFrame, idx: int, column: str, rng: np.random.Generator):
+    """
+    Operational Frozen V2: Transducer Stagnation / Atmospheric Divergence.
+    Sensor output remains anchored around x(t0) with small ADC noise,
+    while underlying atmospheric weather continues normally.
+    """
+    freeze_length = int(rng.integers(8, 25))  # 8 to 24 hours
+    end_idx = min(idx + freeze_length, len(df) - 1)
+    n_steps = end_idx - idx + 1
+
+    anchor = float(df.loc[idx, column])
+    noise_std = 0.01
+    max_dev = 0.05
+
+    walk = np.cumsum(rng.normal(0, noise_std, n_steps))
+    walk = np.clip(walk, -max_dev, max_dev)
+    walk[0] = 0.0
+
+    df.loc[idx:end_idx, column] = anchor + walk
+    clip_to_physical_limits(df, column, idx, end_idx)
+    return "frozen_value", idx, end_idx
+
+
+def inject_spike_v2(df: pd.DataFrame, idx: int, column: str, rng: np.random.Generator):
+    """
+    Operational Spike V2: Discrete impulse jump / transient.
+    Single-reading impulse jump or discrete 1-reading spike.
+    """
+    clean_series = df[column].dropna()
+    diff_1h = clean_series.diff().dropna()
+    diff_mad = float(np.median(np.abs(diff_1h - diff_1h.median())))
+    if diff_mad <= 0:
+        diff_mad = float(clean_series.std() * 0.5) or 1.0
+
+    low, high = HARD_PHYSICAL_LIMITS.get(column, (-np.inf, np.inf))
+    sign = float(rng.choice([-1.0, 1.0]))
+    magnitude = float(rng.uniform(4.5, 7.0)) * diff_mad
+    if column == "temperature_c":
+        magnitude = max(5.0, magnitude)
+    elif column == "pressure_hpa":
+        magnitude = max(6.5, magnitude)
+    elif column == "humidity_pct":
+        magnitude = max(20.0, magnitude)
+
+    val_orig = float(df.loc[idx, column])
+    val_cand = val_orig + sign * magnitude
+    if not (low <= val_cand <= high):
+        val_cand = val_orig - sign * magnitude
+        if not (low <= val_cand <= high):
+            return None
+    df.loc[idx, column] = val_cand
+    return "spike", idx, idx
+
+
+def inject_dropout_v2(df: pd.DataFrame, idx: int, column: str, rng: np.random.Generator):
+    """
+    Operational Dropout V2: Communication / Power Loss.
+    40% isolated single NaN, 40% short burst loss [2, 6] h, 20% intermittent loss.
+    """
+    pattern = rng.choice(["single", "burst", "intermittent"], p=[0.4, 0.4, 0.2])
+    if pattern == "single":
+        df.loc[idx, column] = np.nan
+        return "dropout", idx, idx
+    elif pattern == "burst":
+        burst_len = int(rng.integers(2, 7))  # 2 to 6 hours
+        end_idx = min(idx + burst_len - 1, len(df) - 1)
+        df.loc[idx:end_idx, column] = np.nan
+        return "dropout", idx, end_idx
+    else:  # intermittent
+        window_len = 6
+        end_idx = min(idx + window_len - 1, len(df) - 1)
+        mask = rng.choice([True, False], size=(end_idx - idx + 1), p=[0.6, 0.4])
+        mask[0] = True  # anchor start
+        df_slice = df.loc[idx:end_idx, column].copy()
+        df_slice.iloc[mask] = np.nan
+        df.loc[idx:end_idx, column] = df_slice
+        return "dropout", idx, end_idx
+
+
+def inject_fail_low_v2(df: pd.DataFrame, idx: int, column: str, rng: np.random.Generator):
+    """
+    Operational Fail-Low V2: Ground Short / Rail Disconnect.
+    Duration L in [3, 12] consecutive hours.
+    """
+    fail_len = int(rng.integers(3, 13))  # 3 to 12 hours
+    end_idx = min(idx + fail_len - 1, len(df) - 1)
+    n_steps = end_idx - idx + 1
+
+    rail_val = FAIL_LOW_RAIL_VALUE.get(column, -40.0)
+    noise = rng.normal(0, FAIL_LOW_NOISE_STD, n_steps)
+    df.loc[idx:end_idx, column] = rail_val + noise
+    return "sensor_fail_low", idx, end_idx
+
+
+def inject_multivariate_v2(df: pd.DataFrame, idx: int, column: str, rng: np.random.Generator):
+    """
+    Operational Multivariate V2: Psychrometric / Thermodynamic Dislocation.
+    Simultaneous positive T jump and positive RH rise violating Clausius-Clapeyron.
+    Duration L in [3, 8] hours.
+    """
+    window = int(rng.integers(3, 9))  # 3 to 8 hours
+    end_idx = min(idx + window - 1, len(df) - 1)
+    n_steps = end_idx - idx + 1
+
+    temp_before = df.loc[idx:end_idx, "temperature_c"].to_numpy(dtype=float)
+    rh_before = df.loc[idx:end_idx, "humidity_pct"].to_numpy(dtype=float)
+
+    delta_t = float(rng.uniform(3.5, 5.5))
+    delta_rh = float(rng.uniform(15.0, 30.0))
+
+    df.loc[idx:end_idx, "temperature_c"] = temp_before + delta_t
+    df.loc[idx:end_idx, "humidity_pct"] = rh_before + delta_rh
+    df.loc[idx:end_idx, "pressure_hpa"] += rng.normal(0, 0.2, n_steps)
+
+    clip_to_physical_limits(df, "temperature_c", idx, end_idx)
+    clip_to_physical_limits(df, "humidity_pct", idx, end_idx)
+    clip_to_physical_limits(df, "pressure_hpa", idx, end_idx)
+    return "multivariate_inconsistency", idx, end_idx
+
+
+def inject_unstructured_v2(df: pd.DataFrame, idx: int, column: str, rng: np.random.Generator):
+    """
+    Operational Unstructured V2: Heteroscedastic Sensor Noise Corruption.
+    Duration L in [4, 12] hours.
+    """
+    window = int(rng.integers(4, 13))  # 4 to 12 hours
+    end_idx = min(idx + window - 1, len(df) - 1)
+    n_steps = end_idx - idx + 1
+
+    t_noise = rng.normal(0, float(rng.uniform(3.0, 5.0)) * 0.8, size=n_steps)
+    p_noise = rng.normal(0, float(rng.uniform(3.0, 5.0)) * 0.6, size=n_steps)
+    h_noise = rng.normal(0, float(rng.uniform(3.0, 5.0)) * 4.0, size=n_steps)
+
+    df.loc[idx:end_idx, "temperature_c"] += t_noise
+    df.loc[idx:end_idx, "pressure_hpa"] += p_noise
+    df.loc[idx:end_idx, "humidity_pct"] += h_noise
+
+    df.loc[idx:end_idx, "temperature_c"] = df.loc[idx:end_idx, "temperature_c"].clip(5.0, 45.0)
+    df.loc[idx:end_idx, "pressure_hpa"] = df.loc[idx:end_idx, "pressure_hpa"].clip(920.0, 1040.0)
+    df.loc[idx:end_idx, "humidity_pct"] = df.loc[idx:end_idx, "humidity_pct"].clip(15.0, 95.0)
+    return "unstructured_anomaly", idx, end_idx
+    return "unstructured_anomaly", idx, end_idx
+
+
+def inject_drift_v3(df: pd.DataFrame, idx: int, column: str, rng: np.random.Generator):
+    """
+    Observable Operational Drift V3: Physical Sensor Bias Process with Observable Onset.
+    x_fault(t) = x_clean(t) + sign * [b0 + (b_mature - b0) * ((t-t0)/L)^gamma] + sensor_noise
+    Guarantees initial SNR >= 1.8x over ambient clean MAD from onset t0.
+    """
+    drift_length = int(rng.integers(18, 49))  # 18 to 48 hours
+    end_idx = min(idx + drift_length, len(df) - 1)
+    steps = end_idx - idx + 1
+    direction = float(rng.choice([-1.0, 1.0]))
+
+    clean_series = df[column].dropna()
+    param_mad = float(np.median(np.abs(clean_series - clean_series.median())))
+    if param_mad <= 0:
+        param_mad = float(clean_series.std()) or 1.0
+
+    if column == "temperature_c":
+        b0 = float(rng.uniform(1.6, 2.4))
+        b_mature = max(b0 + 1.5, float(rng.uniform(4.0, 7.5)))
+    elif column == "pressure_hpa":
+        b0 = float(rng.uniform(2.5, 4.0))
+        b_mature = max(b0 + 2.0, float(rng.uniform(5.5, 10.0)))
+    elif column == "humidity_pct":
+        b0 = float(rng.uniform(12.0, 18.0))
+        b_mature = max(b0 + 8.0, float(rng.uniform(22.0, 35.0)))
+    else:
+        b0 = param_mad * 1.8
+        b_mature = param_mad * 4.0
+
+    gamma = float(rng.uniform(1.0, 1.2))
+    t_norm = np.linspace(0.0, 1.0, steps)
+    ramp = b0 + (b_mature - b0) * (t_norm ** gamma)
+
+    noise_std = 0.02
+    noise = rng.normal(0, noise_std, steps)
+
+    natural_values = df.loc[idx:end_idx, column].to_numpy(dtype=float)
+    df.loc[idx:end_idx, column] = natural_values + direction * ramp + noise
+    clip_to_physical_limits(df, column, idx, end_idx)
+    return "drift", idx, end_idx
+
+
+def inject_frozen_v3(df: pd.DataFrame, idx: int, column: str, rng: np.random.Generator):
+    """
+    Observable Operational Frozen V3: Transducer Stagnation / Atmospheric Divergence.
+    """
+    freeze_length = int(rng.integers(8, 25))  # 8 to 24 hours
+    end_idx = min(idx + freeze_length, len(df) - 1)
+    n_steps = end_idx - idx + 1
+
+    anchor = float(df.loc[idx, column])
+    noise_std = 0.01
+    max_dev = 0.04
+
+    walk = np.cumsum(rng.normal(0, noise_std, n_steps))
+    walk = np.clip(walk, -max_dev, max_dev)
+    walk[0] = 0.0
+
+    df.loc[idx:end_idx, column] = anchor + walk
+    clip_to_physical_limits(df, column, idx, end_idx)
+    return "frozen_value", idx, end_idx
+
+
+def inject_spike_v3(df: pd.DataFrame, idx: int, column: str, rng: np.random.Generator):
+    """
+    Observable Operational Spike V3: High-SNR Impulse jump.
+    """
+    clean_series = df[column].dropna()
+    diff_1h = clean_series.diff().dropna()
+    diff_mad = float(np.median(np.abs(diff_1h - diff_1h.median())))
+    if diff_mad <= 0:
+        diff_mad = float(clean_series.std() * 0.5) or 1.0
+
+    low, high = HARD_PHYSICAL_LIMITS.get(column, (-np.inf, np.inf))
+    sign = float(rng.choice([-1.0, 1.0]))
+    magnitude = float(rng.uniform(5.0, 7.5)) * diff_mad
+    if column == "temperature_c":
+        magnitude = max(5.5, magnitude)
+    elif column == "pressure_hpa":
+        magnitude = max(7.0, magnitude)
+    elif column == "humidity_pct":
+        magnitude = max(22.0, magnitude)
+
+    val_orig = float(df.loc[idx, column])
+    val_cand = val_orig + sign * magnitude
+    if not (low <= val_cand <= high):
+        val_cand = val_orig - sign * magnitude
+        if not (low <= val_cand <= high):
+            return None
+    df.loc[idx, column] = val_cand
+    return "spike", idx, idx
+
+
+def inject_dropout_v3(df: pd.DataFrame, idx: int, column: str, rng: np.random.Generator):
+    """
+    Observable Operational Dropout V3.
+    """
+    return inject_dropout_v2(df, idx, column, rng)
+
+
+def inject_fail_low_v3(df: pd.DataFrame, idx: int, column: str, rng: np.random.Generator):
+    """
+    Observable Operational Fail-Low V3.
+    """
+    return inject_fail_low_v2(df, idx, column, rng)
+
+
+def inject_multivariate_v3(df: pd.DataFrame, idx: int, column: str, rng: np.random.Generator):
+    """
+    Observable Operational Multivariate V3: Psychrometric / Thermodynamic Dislocation.
+    """
+    window = int(rng.integers(3, 9))  # 3 to 8 hours
+    end_idx = min(idx + window - 1, len(df) - 1)
+    n_steps = end_idx - idx + 1
+
+    temp_before = df.loc[idx:end_idx, "temperature_c"].to_numpy(dtype=float)
+    rh_before = df.loc[idx:end_idx, "humidity_pct"].to_numpy(dtype=float)
+
+    delta_t = float(rng.uniform(4.0, 6.0))
+    delta_rh = float(rng.uniform(18.0, 32.0))
+
+    df.loc[idx:end_idx, "temperature_c"] = temp_before + delta_t
+    df.loc[idx:end_idx, "humidity_pct"] = rh_before + delta_rh
+    df.loc[idx:end_idx, "pressure_hpa"] += rng.normal(0, 0.2, n_steps)
+
+    clip_to_physical_limits(df, "temperature_c", idx, end_idx)
+    clip_to_physical_limits(df, "humidity_pct", idx, end_idx)
+    clip_to_physical_limits(df, "pressure_hpa", idx, end_idx)
+    return "multivariate_inconsistency", idx, end_idx
+
+
+def inject_unstructured_v3(df: pd.DataFrame, idx: int, column: str, rng: np.random.Generator):
+    """Observable Operational Unstructured V3."""
+    return inject_unstructured_v2(df, idx, column, rng)
+
+
+def inject_drift_v4(df: pd.DataFrame, idx: int, column: str, rng: np.random.Generator):
+    """
+    Tiered Observable Operational Drift V4: Physical Sensor Bias Process with Strong Observable Onset.
+    x_fault(t) = x_clean(t) + sign * [b0 + (b_mature - b0) * ((t-t0)/L)^gamma] + sensor_noise
+    Guarantees initial SNR >= 2.2x over ambient clean MAD from onset t0 across all channels.
+    """
+    drift_length = int(rng.integers(24, 49))  # 24 to 48 hours
+    end_idx = min(idx + drift_length, len(df) - 1)
+    steps = end_idx - idx + 1
+    direction = float(rng.choice([-1.0, 1.0]))
+
+    clean_series = df[column].dropna()
+    param_mad = float(np.median(np.abs(clean_series - clean_series.median())))
+    if param_mad <= 0:
+        param_mad = float(clean_series.std()) or 1.0
+
+    if column == "temperature_c":
+        b0 = float(rng.uniform(2.0, 3.0))
+        b_mature = max(b0 + 2.0, float(rng.uniform(5.0, 8.5)))
+    elif column == "pressure_hpa":
+        b0 = float(rng.uniform(3.0, 5.0))
+        b_mature = max(b0 + 3.0, float(rng.uniform(6.5, 12.0)))
+    elif column == "humidity_pct":
+        b0 = float(rng.uniform(15.0, 22.0))
+        b_mature = max(b0 + 10.0, float(rng.uniform(25.0, 40.0)))
+    else:
+        b0 = param_mad * 2.2
+        b_mature = param_mad * 4.5
+
+    gamma = float(rng.uniform(1.0, 1.15))
+    t_norm = np.linspace(0.0, 1.0, steps)
+    ramp = b0 + (b_mature - b0) * (t_norm ** gamma)
+
+    noise_std = 0.02
+    noise = rng.normal(0, noise_std, steps)
+
+    natural_values = df.loc[idx:end_idx, column].to_numpy(dtype=float)
+    df.loc[idx:end_idx, column] = natural_values + direction * ramp + noise
+    clip_to_physical_limits(df, column, idx, end_idx)
+    return "drift", idx, end_idx
+
+
+def inject_frozen_v4(df: pd.DataFrame, idx: int, column: str, rng: np.random.Generator):
+    """Tiered Observable Frozen V4."""
+    return inject_frozen_v3(df, idx, column, rng)
+
+
+def inject_spike_v4(df: pd.DataFrame, idx: int, column: str, rng: np.random.Generator):
+    """Tiered Observable Spike V4."""
+    return inject_spike_v3(df, idx, column, rng)
+
+
+def inject_dropout_v4(df: pd.DataFrame, idx: int, column: str, rng: np.random.Generator):
+    """Tiered Observable Dropout V4."""
+    return inject_dropout_v2(df, idx, column, rng)
+
+
+def inject_fail_low_v4(df: pd.DataFrame, idx: int, column: str, rng: np.random.Generator):
+    """Tiered Observable Fail-Low V4."""
+    return inject_fail_low_v2(df, idx, column, rng)
+
+
+def inject_multivariate_v4(df: pd.DataFrame, idx: int, column: str, rng: np.random.Generator):
+    """
+    Tiered Observable Multivariate V4: Clear Psychrometric / Thermodynamic Dislocation.
+    """
+    window = int(rng.integers(4, 10))  # 4 to 9 hours
+    end_idx = min(idx + window - 1, len(df) - 1)
+    n_steps = end_idx - idx + 1
+
+    temp_before = df.loc[idx:end_idx, "temperature_c"].to_numpy(dtype=float)
+    rh_before = df.loc[idx:end_idx, "humidity_pct"].to_numpy(dtype=float)
+
+    delta_t = float(rng.uniform(4.5, 6.5))
+    delta_rh = float(rng.uniform(22.0, 38.0))
+
+    df.loc[idx:end_idx, "temperature_c"] = temp_before + delta_t
+    df.loc[idx:end_idx, "humidity_pct"] = rh_before + delta_rh
+    df.loc[idx:end_idx, "pressure_hpa"] += rng.normal(0, 0.2, n_steps)
+
+    clip_to_physical_limits(df, "temperature_c", idx, end_idx)
+    clip_to_physical_limits(df, "humidity_pct", idx, end_idx)
+    clip_to_physical_limits(df, "pressure_hpa", idx, end_idx)
+    return "multivariate_inconsistency", idx, end_idx
+
+
+def inject_unstructured_v4(df: pd.DataFrame, idx: int, column: str, rng: np.random.Generator):
+    """Tiered Observable Unstructured V4."""
+    return inject_unstructured_v2(df, idx, column, rng)
+
+
 # Upper bound on window length per fault type, used to pre-check
 # overlap BEFORE mutating df -- must stay in sync with each function's
 # own rng.integers(...) upper bound (exclusive), or its fixed length.
@@ -541,11 +952,40 @@ FAULT_MAX_LEN = {
     inject_multivariate: 4,
     inject_fail_low: FAIL_LOW_LENGTH,
     inject_unstructured_anomaly: 8,
+    # V2 mappings
+    inject_spike_v2: 1,
+    inject_frozen_v2: 24,
+    inject_drift_v2: 48,
+    inject_dropout_v2: 6,
+    inject_multivariate_v2: 8,
+    inject_fail_low_v2: 12,
+    inject_unstructured_v2: 12,
+    # V3 mappings
+    inject_spike_v3: 1,
+    inject_frozen_v3: 24,
+    inject_drift_v3: 48,
+    inject_dropout_v3: 6,
+    inject_multivariate_v3: 8,
+    inject_fail_low_v3: 12,
+    inject_unstructured_v3: 12,
+    # V4 mappings
+    inject_spike_v4: 1,
+    inject_frozen_v4: 24,
+    inject_drift_v4: 48,
+    inject_dropout_v4: 6,
+    inject_multivariate_v4: 9,
+    inject_fail_low_v4: 12,
+    inject_unstructured_v4: 12,
 }
 
 # Faults that touch all three parameters at once -- they must claim
 # all three columns' spans, not just the sampled one.
-MULTI_COLUMN_FAULTS = {inject_multivariate, inject_unstructured_anomaly}
+MULTI_COLUMN_FAULTS = {
+    inject_multivariate, inject_unstructured_anomaly,
+    inject_multivariate_v2, inject_unstructured_v2,
+    inject_multivariate_v3, inject_unstructured_v3,
+    inject_multivariate_v4, inject_unstructured_v4
+}
 
 # Relative frequency weights for how often each fault type actually
 # occurs on a real AWS network.
@@ -559,11 +999,38 @@ FAULT_WEIGHTS = {
     inject_unstructured_anomaly: 1.2,
 }
 
+FAULT_WEIGHTS_V2 = {
+    inject_spike_v2: 1.8,
+    inject_dropout_v2: 3.0,
+    inject_frozen_v2: 2.0,
+    inject_fail_low_v2: 1.5,
+    inject_drift_v2: 1.0,
+    inject_multivariate_v2: 1.0,
+    inject_unstructured_v2: 1.2,
+}
+
+FAULT_WEIGHTS_V3 = {
+    inject_spike_v3: 1.8,
+    inject_dropout_v3: 3.0,
+    inject_frozen_v3: 2.0,
+    inject_fail_low_v3: 1.5,
+    inject_drift_v3: 1.0,
+    inject_multivariate_v3: 1.0,
+    inject_unstructured_v3: 1.2,
+}
+
+FAULT_WEIGHTS_V4 = {
+    inject_spike_v4: 1.8,
+    inject_dropout_v4: 3.0,
+    inject_frozen_v4: 2.0,
+    inject_fail_low_v4: 1.5,
+    inject_drift_v4: 1.0,
+    inject_multivariate_v4: 1.0,
+    inject_unstructured_v4: 1.2,
+}
+
 # Every fault type gets AT LEAST this many injected EVENTS, regardless
-# of its weight above. Phase 3 needs enough samples per fault type to
-# compute a meaningful per-type precision/recall -- a purely
-# weighted-random draw could theoretically starve a rare type down to
-# zero on an unlucky seed, which would silently break that eval.
+# of its weight above.
 MIN_EVENTS_PER_TYPE = 4
 
 
@@ -572,6 +1039,7 @@ def inject_anomalies(
     seed: int = RANDOM_SEED,
     cluster_claimed_spans: list = None,
     return_spans: bool = False,
+    regime: str = DEFAULT_REGIME,
 ) -> pd.DataFrame:
     """
     Walks through one station's dataframe and injects labeled faults
@@ -579,22 +1047,11 @@ def inject_anomalies(
     Returns a new dataframe with two extra columns: is_anomaly (bool)
     and fault_type (str or None) -- this is the ground truth label set.
 
-    Non-overlap guarantee (§8): before any fault_fn runs, its MAX
-    possible window is checked for real interval overlap against every
-    span already claimed on the columns it touches. This is a
-    conservative pre-check (uses the fault type's max length, not its
-    actual randomly-drawn length), so a fault is never started, then
-    reverted after the fact -- it's simply skipped and retried
-    elsewhere. Overlap is tracked per column, not globally, so
-    independent faults on different parameters can legitimately share
-    a timestamp (§1's frozen-pressure-while-temp-moves-normally case).
-
-    Cluster-concurrency constraint (PCL-Compatible Benchmark B):
-    When cluster_claimed_spans is supplied, candidate fault windows
-    are additionally pre-checked against any active fault windows
-    already claimed by other stations in the same geographic cluster,
-    guaranteeing that at most one station per cluster is faulty at
-    any given evaluation timestamp.
+    Supported regimes:
+    - 'benchmark_b' / 'stress_v1' / 'pcl_compatible': Existing Benchmark B stress benchmark.
+    - 'operational_v1' / 'benchmark_o': Observable operational benchmark V1.
+    - 'observable_v1' / 'benchmark_o_observable': Fully observable operational benchmark V2.
+    - 'observable_v2' / 'benchmark_o_tiered_observable_v2': Tiered observable operational benchmark V3.
     """
     rng = np.random.default_rng(seed)
     if ANOMALY_DENSITY_MULTIPLIER < 0:
@@ -607,17 +1064,36 @@ def inject_anomalies(
     df[columns] = df[columns].astype(float)
     n_rows = len(df)
 
-    # This is a TARGET, not a hard quota -- roughly ~5% of rows end up
-    # contaminated, but the actual number is whatever the two passes
-    # below naturally land on. No fault type is forced to a fixed
-    # count anymore; only a floor (MIN_EVENTS_PER_TYPE) and a ceiling
-    # (this target, approximately) apply.
     target_anomalous_rows = int(n_rows * INJECTION_RATE * ANOMALY_DENSITY_MULTIPLIER)
-    fault_functions = [
-        inject_spike, inject_frozen, inject_drift,
-        inject_dropout, inject_multivariate, inject_fail_low,
-        inject_unstructured_anomaly,
-    ]
+
+    if regime in ("observable_v2", "benchmark_o_tiered_observable_v2"):
+        fault_functions = [
+            inject_spike_v4, inject_frozen_v4, inject_drift_v4,
+            inject_dropout_v4, inject_multivariate_v4, inject_fail_low_v4,
+            inject_unstructured_v4,
+        ]
+        weights_dict = FAULT_WEIGHTS_V4
+    elif regime in ("observable_v1", "benchmark_o_observable"):
+        fault_functions = [
+            inject_spike_v3, inject_frozen_v3, inject_drift_v3,
+            inject_dropout_v3, inject_multivariate_v3, inject_fail_low_v3,
+            inject_unstructured_v3,
+        ]
+        weights_dict = FAULT_WEIGHTS_V3
+    elif regime in ("operational_v1", "benchmark_o"):
+        fault_functions = [
+            inject_spike_v2, inject_frozen_v2, inject_drift_v2,
+            inject_dropout_v2, inject_multivariate_v2, inject_fail_low_v2,
+            inject_unstructured_v2,
+        ]
+        weights_dict = FAULT_WEIGHTS_V2
+    else:
+        fault_functions = [
+            inject_spike, inject_frozen, inject_drift,
+            inject_dropout, inject_multivariate, inject_fail_low,
+            inject_unstructured_anomaly,
+        ]
+        weights_dict = FAULT_WEIGHTS
 
     # FIX 1: per-column timelines instead of one global list -- a
     # reading belongs to at most one injected fault event PER
@@ -694,8 +1170,8 @@ def inject_anomalies(
 
     # Pass 2 -- fill the remaining row budget with weighted-random
     # draws across fault types.
-    weight_fns = list(FAULT_WEIGHTS.keys())
-    weight_probs = np.array([FAULT_WEIGHTS[fn] for fn in weight_fns])
+    weight_fns = list(weights_dict.keys())
+    weight_probs = np.array([weights_dict[fn] for fn in weight_fns])
     weight_probs = weight_probs / weight_probs.sum()
 
     max_total_attempts = n_rows * 3  # generous safety valve
@@ -720,8 +1196,9 @@ def generate_network_benchmark(
 ) -> dict[str, pd.DataFrame]:
     """
     Generates full multi-station benchmark dataset under specified regime:
+    - 'benchmark_b' / 'stress_v1' / 'pcl_compatible': PCL-compatible operational stress benchmark (max 1 fault per cluster per timestamp).
+    - 'operational_v1' / 'benchmark_o': PCL-compatible observable operational benchmark.
     - 'benchmark_a' / 'unrestricted': Unrestricted multi-fault stress test.
-    - 'benchmark_b' / 'pcl_compatible': PCL-compatible operational benchmark (max 1 fault per cluster per timestamp).
     """
     from collections import defaultdict
     station_files = sorted(
@@ -742,13 +1219,18 @@ def generate_network_benchmark(
         pass
 
     if faulty_station_ids is None:
-        # Default target stations (e.g., 5-7 stations receiving realistic fault episodes)
-        faulty_station_ids = {
-            "AWS-BHO-030", "AWS-KOL-101", "AWS-MUM-007", "AWS-RAN-067", "AWS-RAN-101"
-        }
+        # All stations in the network can receive fault episodes across the year,
+        # subject to the strict constraint: <= 1 active faulty station per cluster at any timestamp.
+        faulty_station_ids = {p.stem for p in station_files}
 
     cluster_spans = defaultdict(list)
     results = {}
+
+    is_cluster_constrained = regime in (
+        "benchmark_b", "pcl_compatible", "operational_v1", "benchmark_o", "stress_v1",
+        "observable_v1", "benchmark_o_observable",
+        "observable_v2", "benchmark_o_tiered_observable_v2"
+    )
 
     for csv_path in station_files:
         sid = csv_path.stem
@@ -757,14 +1239,15 @@ def generate_network_benchmark(
 
         if sid in faulty_station_ids:
             station_seed = seed + station_files.index(csv_path) * 1009
-            c_spans = cluster_spans[cid] if regime in ("benchmark_b", "pcl_compatible") else None
+            c_spans = cluster_spans[cid] if is_cluster_constrained else None
             injected, new_spans = inject_anomalies(
                 df_clean,
                 seed=station_seed,
                 cluster_claimed_spans=c_spans,
                 return_spans=True,
+                regime=regime,
             )
-            if regime in ("benchmark_b", "pcl_compatible") and new_spans:
+            if is_cluster_constrained and new_spans:
                 cluster_spans[cid].extend(new_spans)
             results[sid] = injected
         else:

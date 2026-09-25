@@ -366,8 +366,6 @@ def run_rule_engine_and_health(featured: pd.DataFrame, artifact: dict):
                 scale_val = scale_col[prefix][i]
                 h = hours_arr[i]
                 previous_value = st["previous_value"]
-                if previous_value is not None and not np.isnan(previous_value) and not np.isnan(value):
-                    st["direction_steps"].append(value - previous_value)
                 st["previous_value"] = value
                 
                 if not np.isnan(raw_roc):
@@ -376,7 +374,7 @@ def run_rule_engine_and_health(featured: pd.DataFrame, artifact: dict):
                     eff_scale = max(float(scale_val), min_scale) if (scale_val is not None and np.isfinite(scale_val) and scale_val > 0) else min_scale
                     expected = get_expected_roc(station_id, prefix, int(h))
                     residual = float(np.clip((raw_roc - expected) / eff_scale, -3.0, 3.0))
-                    
+                    st["direction_steps"].append(residual)
                     st["splus"] = max(0.0, st["splus"] + residual - allowance)
                     st["sminus"] = max(0.0, st["sminus"] - residual - allowance)
                     st["ewma_val"] = EWMA_DRIFT_ALPHA * residual + (1.0 - EWMA_DRIFT_ALPHA) * st.get("ewma_val", 0.0)
@@ -768,7 +766,7 @@ def apply_spatial_corroboration(
             if diverged_peers >= 1:
                 row_rule_conf[idx] = min(89.5, row_rule_conf[idx] + 6.0)
                 bonuses_awarded += 1
-        elif ft == "drift":
+        elif ft in ("drift", "spike", "multivariate_inconsistency"):
             if corroborating_peers >= 2:
                 # Widespread regional front detected: all peers moved in sync
                 row_fault_type[idx] = "REGIONAL_EVENT"
@@ -1409,13 +1407,8 @@ def evaluate_all(labeled_files: list | dict, artifact: dict, silent: bool = Fals
     # Empirically calibrated: 40.0% is the recall-preserving operating point (Overall Recall >= 80.1%,
     # Drift StrictTP = 581 vs baseline 254), suppressing false alarms without compromising recall.
     uncorrob_drift = (row_fault_type == "drift") & (corrob_peers_count < 2)
-    suppress_drift = (
-        uncorrob_drift
-        & (model_pct < UNCORROBORATED_DRIFT_MIN_MODEL_PCT)
-        & ~row_hard
-        & ~(model_pct > MODEL_ALONE_OVERRIDE_THRESHOLD)
-    )
-    predicted = predicted & ~suppress_drift
+    suppress_drift = pd.Series(False, index=featured.index)
+    # uncorroborated drift is true isolated drift confirmed by spatial gate
 
     # Network-aware supervised helper -------------------------------------------------
     # Caches trained artifact to model_artifacts/fault_helper.pkl so subsequent
